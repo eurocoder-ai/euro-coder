@@ -1,5 +1,9 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.shell;
 
+import dev.aihelpcenter.sovereigncli.agent.ModelManager;
+import dev.aihelpcenter.sovereigncli.agent.ModelOption;
+import dev.aihelpcenter.sovereigncli.agent.Provider;
+import dev.aihelpcenter.sovereigncli.config.ApiKeyManager;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.slf4j.Logger;
@@ -83,10 +87,7 @@ public class FirstRunSetup implements ApplicationRunner {
             pChoice = 1;
         }
 
-        ModelManager.Provider selectedProvider = (pChoice == 2)
-                ? ModelManager.Provider.OLLAMA
-                : ModelManager.Provider.MISTRAL;
-
+        Provider selectedProvider = (pChoice == 2) ? Provider.OLLAMA : Provider.MISTRAL;
         modelManager.switchProvider(selectedProvider);
 
         System.out.println();
@@ -95,7 +96,7 @@ public class FirstRunSetup implements ApplicationRunner {
 
         // ── Step 2: Provider-specific setup ──────────────────────────
 
-        if (selectedProvider == ModelManager.Provider.MISTRAL) {
+        if (selectedProvider == Provider.MISTRAL) {
             setupMistral(console);
         } else {
             setupOllama(console);
@@ -104,20 +105,20 @@ public class FirstRunSetup implements ApplicationRunner {
         // ── Step 3: Choose model ─────────────────────────────────────
 
         System.out.println();
-        printColored("  STEP " + (selectedProvider == ModelManager.Provider.MISTRAL ? "3" : "2")
+        printColored("  STEP " + (selectedProvider == Provider.MISTRAL ? "3" : "2")
                 + " — Choose your model", AttributedStyle.YELLOW);
         System.out.println();
 
-        List<ModelManager.ModelOption> models = modelManager.getSuggestedModels();
+        List<ModelOption> models = modelManager.getSuggestedModels();
         for (int i = 0; i < models.size(); i++) {
-            ModelManager.ModelOption m = models.get(i);
+            ModelOption m = models.get(i);
             String marker = (i == 0) ? " (recommended)" : "";
             printColored(String.format("    [%d] %-26s %s%s",
                     i + 1, m.displayName(), m.description(), marker), AttributedStyle.WHITE);
         }
         System.out.println();
 
-        if (selectedProvider == ModelManager.Provider.OLLAMA) {
+        if (selectedProvider == Provider.OLLAMA) {
             printColored("    You can also type a custom model name (e.g. 'phi3:medium').", AttributedStyle.WHITE);
             System.out.println();
         }
@@ -137,7 +138,7 @@ public class FirstRunSetup implements ApplicationRunner {
                 }
             } catch (NumberFormatException e) {
                 // Treat as custom model name for Ollama
-                if (selectedProvider == ModelManager.Provider.OLLAMA) {
+                if (selectedProvider == Provider.OLLAMA) {
                     selectedMode = choiceStr.trim();
                 } else {
                     selectedMode = models.get(0).id();
@@ -209,11 +210,9 @@ public class FirstRunSetup implements ApplicationRunner {
     // ── Helpers ──────────────────────────────────────────────────────
 
     private boolean isAlreadyConfigured() {
-        // Mistral: needs an API key
         if (apiKeyManager.hasApiKey()) {
             return true;
         }
-        // Ollama: no key needed, just check if provider was set
         String savedProvider = apiKeyManager.getProvider();
         return "ollama".equalsIgnoreCase(savedProvider);
     }

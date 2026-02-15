@@ -1,5 +1,10 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.shell;
 
+import dev.aihelpcenter.sovereigncli.agent.HybridAgentRouter;
+import dev.aihelpcenter.sovereigncli.agent.ModelManager;
+import dev.aihelpcenter.sovereigncli.agent.ModelOption;
+import dev.aihelpcenter.sovereigncli.agent.Provider;
+import dev.aihelpcenter.sovereigncli.config.ApiKeyManager;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.springframework.shell.standard.ShellComponent;
@@ -8,88 +13,21 @@ import org.springframework.shell.standard.ShellOption;
 
 import java.util.List;
 
+/**
+ * Shell commands for configuration: provider, model, config-key, config-clear,
+ * config-show, and status.
+ */
 @ShellComponent
-public class AgentCommands {
+public class ConfigCommands {
 
     private final HybridAgentRouter router;
     private final ModelManager modelManager;
     private final ApiKeyManager apiKeyManager;
 
-    public AgentCommands(HybridAgentRouter router, ModelManager modelManager, ApiKeyManager apiKeyManager) {
+    public ConfigCommands(HybridAgentRouter router, ModelManager modelManager, ApiKeyManager apiKeyManager) {
         this.router = router;
         this.modelManager = modelManager;
         this.apiKeyManager = apiKeyManager;
-    }
-
-    @ShellMethod(key = "ask", value = "Ask the Sovereign Agent (auto-routes between Planner and Coder)")
-    public String ask(@ShellOption(defaultValue = "Help me understand what you can do") String prompt) {
-        System.out.println();
-        System.out.println(colorize("Routing request...", AttributedStyle.CYAN));
-
-        try {
-            HybridAgentRouter.HybridResult result = router.chat(prompt);
-
-            if (result.wasHybrid()) {
-                System.out.println(colorize("  -> Planner (" + modelManager.getPlannerModelName() + ") analyzing...", AttributedStyle.YELLOW));
-                System.out.println(colorize("  -> Coder (" + modelManager.getCoderModelName() + ") executing...", AttributedStyle.YELLOW));
-            } else {
-                System.out.println(colorize("  -> Direct mode (" + modelManager.getCoderModelName() + ")", AttributedStyle.YELLOW));
-            }
-            System.out.println();
-
-            return colorize("Agent: ", AttributedStyle.GREEN) + result.toDisplayString();
-        } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
-        }
-    }
-
-    @ShellMethod(key = "plan", value = "Force hybrid mode: Planner analyzes, then Coder executes")
-    public String plan(@ShellOption(defaultValue = "Help me") String prompt) {
-        System.out.println();
-        System.out.println(colorize("HYBRID mode — Planner (" + modelManager.getPlannerModelName()
-                + ") -> Coder (" + modelManager.getCoderModelName() + ")", AttributedStyle.CYAN));
-        System.out.println();
-
-        try {
-            HybridAgentRouter.HybridResult result = router.chatHybrid(prompt);
-            return colorize("Agent: ", AttributedStyle.GREEN) + result.toDisplayString();
-        } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
-        }
-    }
-
-    @ShellMethod(key = "code", value = "Generate code directly (uses coder model for speed)")
-    public String code(
-            @ShellOption(help = "What to build") String description,
-            @ShellOption(defaultValue = "", help = "Target file path") String file) {
-
-        String prompt = "Write code for: " + description;
-        if (!file.isBlank()) {
-            prompt += ". Save it to the file: " + file;
-        }
-
-        System.out.println();
-        System.out.println(colorize(modelManager.getCoderModelName() + " generating code...", AttributedStyle.CYAN));
-        System.out.println();
-
-        try {
-            String response = router.chatDirect(prompt);
-            return colorize("Agent: ", AttributedStyle.GREEN) + response;
-        } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
-        }
-    }
-
-    @ShellMethod(key = "ls", value = "List files in a directory")
-    public String ls(@ShellOption(defaultValue = ".") String directory) {
-        System.out.println();
-
-        try {
-            String response = router.chatDirect("List all files in the directory: " + directory);
-            return response;
-        } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
-        }
     }
 
     // ── Provider command ─────────────────────────────────────────────
@@ -103,13 +41,13 @@ public class AgentCommands {
     }
 
     private String showProvider() {
-        ModelManager.Provider current = modelManager.getProvider();
+        Provider current = modelManager.getProvider();
         StringBuilder sb = new StringBuilder("\n");
 
         sb.append(colorize("  Current provider: " + current.displayName(), AttributedStyle.CYAN)).append("\n\n");
         sb.append(colorize("  Available providers:", AttributedStyle.WHITE)).append("\n");
 
-        for (ModelManager.Provider p : ModelManager.Provider.values()) {
+        for (Provider p : Provider.values()) {
             String active = (p == current) ? " <-- active" : "";
             String desc = switch (p) {
                 case MISTRAL -> "European cloud API (requires API key, best quality)";
@@ -127,19 +65,16 @@ public class AgentCommands {
     }
 
     private String switchProvider(String name) {
-        ModelManager.Provider newProvider;
-        try {
-            newProvider = ModelManager.Provider.fromId(name.trim());
-        } catch (Exception e) {
-            return colorize("Unknown provider: '" + name + "'. Use 'mistral' or 'ollama'.", AttributedStyle.RED);
-        }
+        String trimmedName = name.trim();
+        Provider newProvider = Provider.fromId(trimmedName);
 
-        if (!newProvider.id().equalsIgnoreCase(name.trim())) {
+        // fromId() defaults to MISTRAL for unknown values — detect that case
+        if (!newProvider.id().equalsIgnoreCase(trimmedName)) {
             return colorize("Unknown provider: '" + name + "'. Use 'mistral' or 'ollama'.", AttributedStyle.RED);
         }
 
         // If switching to Mistral, check for API key
-        if (newProvider == ModelManager.Provider.MISTRAL && !apiKeyManager.hasApiKey()) {
+        if (newProvider == Provider.MISTRAL && !apiKeyManager.hasApiKey()) {
             return colorize("No Mistral API key configured. Set one first with 'config-key <key>'.", AttributedStyle.RED);
         }
 
@@ -152,11 +87,11 @@ public class AgentCommands {
         sb.append("\n  Planner: ").append(modelManager.getPlannerModelName());
         sb.append("\n  Coder:   ").append(modelManager.getCoderModelName());
 
-        if (newProvider == ModelManager.Provider.OLLAMA) {
+        if (newProvider == Provider.OLLAMA) {
             sb.append("\n\n");
             sb.append(colorize("  Make sure Ollama is running and models are pulled:", AttributedStyle.YELLOW));
-            sb.append("\n  ollama pull " + modelManager.getPlannerModelName());
-            sb.append("\n  ollama pull " + modelManager.getCoderModelName());
+            sb.append("\n  ollama pull ").append(modelManager.getPlannerModelName());
+            sb.append("\n  ollama pull ").append(modelManager.getCoderModelName());
         }
 
         return sb.toString();
@@ -184,11 +119,9 @@ public class AgentCommands {
                     : setCoder(arg.trim());
             case "auto" -> switchModel("auto");
             default -> {
-                // If action looks like a model name (and arg is empty), treat as shortcut
                 if (arg.isBlank()) {
                     yield switchModel(a);
                 }
-                // Otherwise "model <action> <arg>" might be a typo
                 yield colorize("Unknown subcommand: '" + a + "'. Try: model list | model planner <name> | model coder <name> | model <name>", AttributedStyle.RED);
             }
         };
@@ -227,13 +160,11 @@ public class AgentCommands {
         StringBuilder sb = new StringBuilder("\n");
         String providerLabel = modelManager.getProvider().displayName();
 
-        // ── Dynamic models (live from API) ──────────────────────────
-
         if (modelManager.isOllama()) {
-            List<ModelManager.ModelOption> installed = modelManager.getInstalledOllamaModels();
+            List<ModelOption> installed = modelManager.getInstalledOllamaModels();
             if (!installed.isEmpty()) {
                 sb.append(colorize("  Installed Ollama models (live):", AttributedStyle.CYAN)).append("\n\n");
-                for (ModelManager.ModelOption m : installed) {
+                for (ModelOption m : installed) {
                     String active = isActive(m.id());
                     sb.append(String.format("    %-30s %s%s\n",
                             colorize(m.id(), AttributedStyle.GREEN),
@@ -245,10 +176,10 @@ public class AgentCommands {
                 sb.append(colorize("  Could not reach Ollama. Is it running? (ollama serve)", AttributedStyle.YELLOW)).append("\n\n");
             }
         } else {
-            List<ModelManager.ModelOption> remote = modelManager.getRemoteMistralModels();
+            List<ModelOption> remote = modelManager.getRemoteMistralModels();
             if (!remote.isEmpty()) {
                 sb.append(colorize("  Available Mistral models (live from API):", AttributedStyle.CYAN)).append("\n\n");
-                for (ModelManager.ModelOption m : remote) {
+                for (ModelOption m : remote) {
                     String active = isActive(m.id());
                     sb.append(String.format("    %-34s %s%s\n",
                             colorize(m.id(), AttributedStyle.GREEN),
@@ -259,11 +190,9 @@ public class AgentCommands {
             }
         }
 
-        // ── Curated suggestions ─────────────────────────────────────
-
-        List<ModelManager.ModelOption> suggested = modelManager.getSuggestedModels();
+        List<ModelOption> suggested = modelManager.getSuggestedModels();
         sb.append(colorize("  Recommended for tool calling (" + providerLabel + "):", AttributedStyle.CYAN)).append("\n\n");
-        for (ModelManager.ModelOption m : suggested) {
+        for (ModelOption m : suggested) {
             String active = isActive(m.id());
             sb.append(String.format("    %-30s %s%s\n",
                     colorize(m.id(), AttributedStyle.GREEN),
@@ -400,7 +329,7 @@ public class AgentCommands {
 
     @ShellMethod(key = "status", value = "Show the current status of the Sovereign Agent")
     public String status() {
-        boolean ready = modelManager.isMistral() ? apiKeyManager.hasApiKey() : true;
+        boolean ready = !modelManager.isMistral() || apiKeyManager.hasApiKey();
         String mode = modelManager.getCurrentMode();
         String providerName = modelManager.getProvider().displayName();
 

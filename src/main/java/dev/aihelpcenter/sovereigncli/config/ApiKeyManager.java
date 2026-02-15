@@ -1,4 +1,4 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -13,14 +13,24 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.Set;
 
+/**
+ * Manages persistent configuration stored in {@code ~/.eurocoder/config.json}.
+ * Handles API keys, provider settings, model mode, and custom model overrides.
+ * <p>
+ * Override {@link #getConfigDir()} in tests to redirect storage to a temp directory.
+ */
 @Component
 public class ApiKeyManager {
 
     private static final Logger log = LoggerFactory.getLogger(ApiKeyManager.class);
-    private static final Path CONFIG_DIR = Paths.get(System.getProperty("user.home"), ".eurocoder");
-    private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.json");
+    private static final Path DEFAULT_CONFIG_DIR = Paths.get(System.getProperty("user.home"), ".eurocoder");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /** Override in tests to redirect config storage to a temp directory. */
+    protected Path getConfigDir() {
+        return DEFAULT_CONFIG_DIR;
+    }
 
     public String getApiKey() {
         String envKey = System.getenv("MISTRAL_API_KEY");
@@ -39,13 +49,14 @@ public class ApiKeyManager {
     public void saveApiKey(String apiKey) throws IOException {
         writeConfigField("mistral_api_key", apiKey.trim());
         restrictPermissions();
-        log.info("API key saved to {}", CONFIG_FILE);
+        log.info("API key saved to {}", getConfigFilePath());
     }
 
     public void clearApiKey() throws IOException {
-        if (Files.exists(CONFIG_FILE)) {
-            Files.delete(CONFIG_FILE);
-            log.info("API key cleared from {}", CONFIG_FILE);
+        Path configFile = getConfigFilePath();
+        if (Files.exists(configFile)) {
+            Files.delete(configFile);
+            log.info("API key cleared from {}", configFile);
         }
     }
 
@@ -108,46 +119,49 @@ public class ApiKeyManager {
     }
 
     public Path getConfigFilePath() {
-        return CONFIG_FILE;
+        return getConfigDir().resolve("config.json");
     }
 
     private String readConfigField(String field) {
-        if (!Files.exists(CONFIG_FILE)) {
+        Path configFile = getConfigFilePath();
+        if (!Files.exists(configFile)) {
             return null;
         }
         try {
-            ObjectNode root = (ObjectNode) objectMapper.readTree(CONFIG_FILE.toFile());
+            ObjectNode root = (ObjectNode) objectMapper.readTree(configFile.toFile());
             if (root.has(field)) {
                 String value = root.get(field).asText();
                 return value.isBlank() ? null : value;
             }
         } catch (IOException e) {
-            log.warn("Failed to read config field '{}' from {}: {}", field, CONFIG_FILE, e.getMessage());
+            log.warn("Failed to read config field '{}' from {}: {}", field, configFile, e.getMessage());
         }
         return null;
     }
 
     private void writeConfigField(String field, String value) throws IOException {
-        Files.createDirectories(CONFIG_DIR);
+        Path configDir = getConfigDir();
+        Path configFile = getConfigFilePath();
+        Files.createDirectories(configDir);
 
         ObjectNode root;
-        if (Files.exists(CONFIG_FILE)) {
-            root = (ObjectNode) objectMapper.readTree(CONFIG_FILE.toFile());
+        if (Files.exists(configFile)) {
+            root = (ObjectNode) objectMapper.readTree(configFile.toFile());
         } else {
             root = objectMapper.createObjectNode();
         }
 
         root.put(field, value);
-        objectMapper.writerWithDefaultPrettyPrinter().writeValue(CONFIG_FILE.toFile(), root);
+        objectMapper.writerWithDefaultPrettyPrinter().writeValue(configFile.toFile(), root);
     }
 
     private void restrictPermissions() {
         try {
-            Files.setPosixFilePermissions(CONFIG_FILE, Set.of(
+            Files.setPosixFilePermissions(getConfigFilePath(), Set.of(
                     PosixFilePermission.OWNER_READ,
                     PosixFilePermission.OWNER_WRITE
             ));
-            Files.setPosixFilePermissions(CONFIG_DIR, Set.of(
+            Files.setPosixFilePermissions(getConfigDir(), Set.of(
                     PosixFilePermission.OWNER_READ,
                     PosixFilePermission.OWNER_WRITE,
                     PosixFilePermission.OWNER_EXECUTE

@@ -1,5 +1,6 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.agent;
 
+import dev.aihelpcenter.sovereigncli.tool.FileSystemTools;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -110,7 +111,7 @@ class HybridAgentRouterTest {
 
     @Test
     void hybridResult_withPlanAndExecution_showsBoth() {
-        var result = new HybridAgentRouter.HybridResult(
+        var result = new HybridResult(
                 "Step 1: Read file\nStep 2: Modify",
                 "Done. Modified 3 files.",
                 true
@@ -126,7 +127,7 @@ class HybridAgentRouterTest {
 
     @Test
     void hybridResult_informationalOnly_showsPlanOnly() {
-        var result = new HybridAgentRouter.HybridResult(
+        var result = new HybridResult(
                 "Docker is a containerization platform.",
                 null,
                 false
@@ -141,7 +142,7 @@ class HybridAgentRouterTest {
 
     @Test
     void hybridResult_directMode_showsExecutionOnly() {
-        var result = new HybridAgentRouter.HybridResult(
+        var result = new HybridResult(
                 null,
                 "Here are your running containers...",
                 false
@@ -154,14 +155,14 @@ class HybridAgentRouterTest {
 
     @Test
     void hybridResult_nullEverything_showsFallback() {
-        var result = new HybridAgentRouter.HybridResult(null, null, false);
+        var result = new HybridResult(null, null, false);
 
         assertThat(result.toDisplayString()).isEqualTo("(no response)");
     }
 
     @Test
     void hybridResult_hybridWithNullExecution_showsNoExecutionNeeded() {
-        var result = new HybridAgentRouter.HybridResult(
+        var result = new HybridResult(
                 "The plan is complete",
                 null,
                 true
@@ -175,8 +176,8 @@ class HybridAgentRouterTest {
 
     @Test
     void hybridResult_wasHybrid_flag() {
-        var hybrid = new HybridAgentRouter.HybridResult("plan", "exec", true);
-        var direct = new HybridAgentRouter.HybridResult(null, "exec", false);
+        var hybrid = new HybridResult("plan", "exec", true);
+        var direct = new HybridResult(null, "exec", false);
 
         assertThat(hybrid.wasHybrid()).isTrue();
         assertThat(direct.wasHybrid()).isFalse();

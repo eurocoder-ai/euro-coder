@@ -1,4 +1,4 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.shell;
 
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;

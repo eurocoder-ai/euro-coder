@@ -1,5 +1,6 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.agent;
 
+import dev.aihelpcenter.sovereigncli.config.ApiKeyManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,7 +26,6 @@ class ModelManagerTest {
 
     @BeforeEach
     void setUp() {
-        // Default: no saved config
         when(apiKeyManager.getProvider()).thenReturn(null);
         when(apiKeyManager.getModelMode()).thenReturn(null);
         when(apiKeyManager.getCustomPlannerModel()).thenReturn(null);
@@ -38,7 +38,7 @@ class ModelManagerTest {
 
     @Test
     void defaultProvider_isMistral() {
-        assertThat(modelManager.getProvider()).isEqualTo(ModelManager.Provider.MISTRAL);
+        assertThat(modelManager.getProvider()).isEqualTo(Provider.MISTRAL);
         assertThat(modelManager.isMistral()).isTrue();
         assertThat(modelManager.isOllama()).isFalse();
     }
@@ -71,7 +71,7 @@ class ModelManagerTest {
         when(apiKeyManager.getProvider()).thenReturn("ollama");
         ModelManager mgr = new ModelManager(apiKeyManager);
 
-        assertThat(mgr.getProvider()).isEqualTo(ModelManager.Provider.OLLAMA);
+        assertThat(mgr.getProvider()).isEqualTo(Provider.OLLAMA);
         assertThat(mgr.isOllama()).isTrue();
     }
 
@@ -103,7 +103,7 @@ class ModelManagerTest {
         when(apiKeyManager.getCustomCoderModel()).thenReturn("  ");
         ModelManager mgr = new ModelManager(apiKeyManager);
 
-        assertThat(mgr.getProvider()).isEqualTo(ModelManager.Provider.MISTRAL);
+        assertThat(mgr.getProvider()).isEqualTo(Provider.MISTRAL);
         assertThat(mgr.getCurrentMode()).isEqualTo("auto");
         assertThat(mgr.hasCustomModels()).isFalse();
     }
@@ -150,7 +150,7 @@ class ModelManagerTest {
 
     @Test
     void switchProvider_toOllama_changesDefaults() throws Exception {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
 
         assertThat(modelManager.isOllama()).isTrue();
         assertThat(modelManager.isAutoMode()).isTrue();
@@ -164,7 +164,7 @@ class ModelManagerTest {
     @Test
     void switchProvider_resetsCustomModels() throws Exception {
         modelManager.setCustomPlannerModel("custom");
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
 
         assertThat(modelManager.hasCustomModels()).isFalse();
         verify(apiKeyManager, atLeastOnce()).clearCustomModels();
@@ -172,8 +172,8 @@ class ModelManagerTest {
 
     @Test
     void switchProvider_backToMistral() throws Exception {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
-        modelManager.switchProvider(ModelManager.Provider.MISTRAL);
+        modelManager.switchProvider(Provider.OLLAMA);
+        modelManager.switchProvider(Provider.MISTRAL);
 
         assertThat(modelManager.isMistral()).isTrue();
         assertThat(modelManager.getPlannerModelName()).isEqualTo("mistral-large-latest");
@@ -187,7 +187,7 @@ class ModelManagerTest {
         modelManager.setCustomPlannerModel("mistral-nemo");
 
         assertThat(modelManager.getPlannerModelName()).isEqualTo("mistral-nemo");
-        assertThat(modelManager.getCoderModelName()).isEqualTo("codestral-latest"); // unchanged
+        assertThat(modelManager.getCoderModelName()).isEqualTo("codestral-latest");
         assertThat(modelManager.hasCustomModels()).isTrue();
         assertThat(modelManager.isAutoMode()).isTrue();
 
@@ -199,7 +199,7 @@ class ModelManagerTest {
         modelManager.setCustomCoderModel("mistral-small-latest");
 
         assertThat(modelManager.getCoderModelName()).isEqualTo("mistral-small-latest");
-        assertThat(modelManager.getPlannerModelName()).isEqualTo("mistral-large-latest"); // unchanged
+        assertThat(modelManager.getPlannerModelName()).isEqualTo("mistral-large-latest");
         assertThat(modelManager.hasCustomModels()).isTrue();
 
         verify(apiKeyManager).saveCustomCoderModel("mistral-small-latest");
@@ -225,7 +225,7 @@ class ModelManagerTest {
 
     @Test
     void ollamaAutoMode_usesOllamaDefaults() {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
 
         assertThat(modelManager.getPlannerModelName()).isEqualTo("llama3.1");
         assertThat(modelManager.getCoderModelName()).isEqualTo("qwen3:4b");
@@ -233,7 +233,7 @@ class ModelManagerTest {
 
     @Test
     void ollamaSingleMode_usesSameModel() {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
         modelManager.switchMode("mistral-nemo");
 
         assertThat(modelManager.getPlannerModelName()).isEqualTo("mistral-nemo");
@@ -242,7 +242,7 @@ class ModelManagerTest {
 
     @Test
     void ollamaCustomPairing() {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
         modelManager.setCustomPlannerModel("llama3.1:70b");
         modelManager.setCustomCoderModel("qwen3-coder");
 
@@ -275,7 +275,7 @@ class ModelManagerTest {
 
     @Test
     void suggestedModels_ollama_returnsOllamaList() {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
         assertThat(modelManager.getSuggestedModels()).isEqualTo(ModelManager.OLLAMA_SUGGESTIONS);
     }
 
@@ -289,13 +289,12 @@ class ModelManagerTest {
 
     @Test
     void getInstalledOllamaModels_whenMistralProvider_returnsEmpty() {
-        // Default provider is Mistral
         assertThat(modelManager.getInstalledOllamaModels()).isEmpty();
     }
 
     @Test
     void getRemoteMistralModels_whenOllamaProvider_returnsEmpty() {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
         assertThat(modelManager.getRemoteMistralModels()).isEmpty();
     }
 
@@ -307,10 +306,9 @@ class ModelManagerTest {
 
     @Test
     void getInstalledOllamaModels_whenOllamaNotRunning_returnsEmpty() {
-        modelManager.switchProvider(ModelManager.Provider.OLLAMA);
+        modelManager.switchProvider(Provider.OLLAMA);
         when(apiKeyManager.getOllamaBaseUrl()).thenReturn("http://localhost:99999");
 
-        // Should not throw, just return empty
         assertThat(modelManager.getInstalledOllamaModels()).isEmpty();
     }
 }

@@ -1,7 +1,8 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.aihelpcenter.sovereigncli.config.ApiKeyManager;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.mistralai.MistralAiChatModel;
 import dev.langchain4j.model.ollama.OllamaChatModel;
@@ -43,36 +44,6 @@ import java.util.List;
 public class ModelManager {
 
     private static final Logger log = LoggerFactory.getLogger(ModelManager.class);
-
-    // ── Provider enum ────────────────────────────────────────────────
-
-    public enum Provider {
-        MISTRAL("mistral", "Mistral Cloud API"),
-        OLLAMA("ollama", "Ollama (Local)");
-
-        private final String id;
-        private final String displayName;
-
-        Provider(String id, String displayName) {
-            this.id = id;
-            this.displayName = displayName;
-        }
-
-        public String id() { return id; }
-        public String displayName() { return displayName; }
-
-        public static Provider fromId(String id) {
-            if (id == null) return MISTRAL;
-            for (Provider p : values()) {
-                if (p.id.equalsIgnoreCase(id.trim())) return p;
-            }
-            return MISTRAL;
-        }
-    }
-
-    // ── Model record ─────────────────────────────────────────────────
-
-    public record ModelOption(String id, String displayName, String description) {}
 
     // ── Suggested models per provider (curated, not restrictive) ─────
 

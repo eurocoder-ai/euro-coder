@@ -1,4 +1,4 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.tool;
 
 import dev.langchain4j.agent.tool.Tool;
 import org.slf4j.Logger;
@@ -12,8 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -28,9 +30,20 @@ public class FileSystemTools {
     private static final Logger log = LoggerFactory.getLogger(FileSystemTools.class);
 
     // Directories to always skip when building the project tree
-    private static final List<String> TREE_SKIP_DIRS = List.of(
+    private static final Set<String> TREE_SKIP_DIRS = Set.of(
             "target", "build", "node_modules", ".git", ".idea", ".vscode",
             ".cursor", "__pycache__", ".gradle", "dist", "out", ".next");
+
+    // Binary file extensions to skip during content searches
+    private static final Set<String> BINARY_EXTENSIONS = Set.of(
+            ".jar", ".class", ".war", ".zip", ".gz", ".tar",
+            ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
+            ".pdf", ".woff", ".woff2", ".ttf", ".eot",
+            ".exe", ".dll", ".so", ".dylib", ".DS_Store");
+
+    private static final int COMMAND_TIMEOUT_SECONDS = 60;
+    private static final int MAX_COMMAND_OUTPUT_LINES = 200;
+    private static final int MAX_SEARCH_MATCHES = 100;
 
     // ── Project exploration tools ────────────────────────────────────
 
@@ -97,14 +110,12 @@ public class FileSystemTools {
         Path dir = (directory == null || directory.isBlank()) ? Paths.get(".") : Paths.get(directory);
         String pattern = (globPattern == null || globPattern.isBlank()) ? "*" : globPattern;
 
-        // Ensure the pattern uses glob: prefix for the PathMatcher
         PathMatcher matcher = dir.getFileSystem().getPathMatcher("glob:" + pattern);
 
         try (Stream<Path> walk = Files.walk(dir)) {
             String result = walk
                     .filter(Files::isRegularFile)
                     .filter(p -> {
-                        // Skip build/hidden directories
                         for (Path component : dir.relativize(p)) {
                             if (TREE_SKIP_DIRS.contains(component.toString())) return false;
                         }
@@ -197,7 +208,6 @@ public class FileSystemTools {
 
         log.info("Searching for '{}' in {}", pattern, dir);
         List<String> matches = new ArrayList<>();
-        int maxMatches = 100;
 
         try (Stream<Path> walk = Files.walk(dir)) {
             List<Path> files = walk
@@ -208,19 +218,19 @@ public class FileSystemTools {
                         }
                         return true;
                     })
-                    .filter(p -> isTextFile(p))
+                    .filter(this::isTextFile)
                     .sorted()
                     .toList();
 
             for (Path file : files) {
-                if (matches.size() >= maxMatches) break;
+                if (matches.size() >= MAX_SEARCH_MATCHES) break;
 
                 try {
                     List<String> lines = Files.readAllLines(file);
                     String relPath = dir.relativize(file).toString();
 
                     for (int i = 0; i < lines.size(); i++) {
-                        if (matches.size() >= maxMatches) break;
+                        if (matches.size() >= MAX_SEARCH_MATCHES) break;
                         if (lines.get(i).contains(pattern)) {
                             matches.add(String.format("%s:%d: %s",
                                     relPath, i + 1, lines.get(i).trim()));
@@ -244,8 +254,8 @@ public class FileSystemTools {
         for (String match : matches) {
             sb.append(match).append("\n");
         }
-        if (matches.size() >= maxMatches) {
-            sb.append("\n... (results capped at ").append(maxMatches).append(" matches)");
+        if (matches.size() >= MAX_SEARCH_MATCHES) {
+            sb.append("\n... (results capped at ").append(MAX_SEARCH_MATCHES).append(" matches)");
         }
         return sb.toString().trim();
     }
@@ -255,18 +265,12 @@ public class FileSystemTools {
      */
     private boolean isTextFile(Path path) {
         String name = path.getFileName().toString().toLowerCase();
-        // Skip common binary extensions
-        if (name.endsWith(".jar") || name.endsWith(".class") || name.endsWith(".war") ||
-                name.endsWith(".zip") || name.endsWith(".gz") || name.endsWith(".tar") ||
-                name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") ||
-                name.endsWith(".gif") || name.endsWith(".ico") || name.endsWith(".svg") ||
-                name.endsWith(".pdf") || name.endsWith(".woff") || name.endsWith(".woff2") ||
-                name.endsWith(".ttf") || name.endsWith(".eot") || name.endsWith(".exe") ||
-                name.endsWith(".dll") || name.endsWith(".so") || name.endsWith(".dylib") ||
-                name.endsWith(".DS_Store")) {
-            return false;
+        int dotIndex = name.lastIndexOf('.');
+        if (dotIndex >= 0) {
+            String extension = name.substring(dotIndex);
+            return !BINARY_EXTENSIONS.contains(extension);
         }
-        return true;
+        return !BINARY_EXTENSIONS.contains(name);
     }
 
     @Tool("Writes the given content to a file, creating it if it does not exist or overwriting if it does")
@@ -287,8 +291,8 @@ public class FileSystemTools {
     public String appendToFile(String path, String content) {
         try {
             Path filePath = Paths.get(path);
-            String existing = Files.exists(filePath) ? Files.readString(filePath) : "";
-            Files.writeString(filePath, existing + content);
+            Files.writeString(filePath, content,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             return "Successfully appended " + content.length() + " characters to " + path;
         } catch (IOException e) {
             return "Error appending to file: " + e.getMessage();
@@ -322,61 +326,33 @@ public class FileSystemTools {
           "The command runs in the current working directory with a 60-second timeout.")
     public String runCommand(String command) {
         log.info("Executing command: {}", command);
-        try {
-            ProcessBuilder pb = new ProcessBuilder("sh", "-c", command);
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                String line;
-                int lineCount = 0;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
-                    lineCount++;
-                    // Cap output to prevent overwhelming the model context
-                    if (lineCount >= 200) {
-                        output.append("\n... (output truncated at 200 lines)\n");
-                        break;
-                    }
-                }
-            }
-
-            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                return "Command timed out after 60 seconds. Partial output:\n" + output;
-            }
-
-            int exitCode = process.exitValue();
-            String result = output.toString().trim();
-
-            if (exitCode != 0) {
-                return "Command exited with code " + exitCode + ":\n" + result;
-            }
-            return result.isEmpty() ? "(command completed with no output)" : result;
-
-        } catch (IOException e) {
-            return "Error executing command: " + e.getMessage();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "Command interrupted: " + e.getMessage();
-        }
+        return executeCommand(command, null);
     }
 
     @Tool("Executes a shell command in a specific directory and returns its output. " +
           "Use this when you need to run a command in a particular location.")
     public String runCommandInDirectory(String command, String workingDirectory) {
         log.info("Executing command in {}: {}", workingDirectory, command);
-        try {
-            Path dir = Paths.get(workingDirectory);
-            if (!Files.isDirectory(dir)) {
-                return "Error: '" + workingDirectory + "' is not a valid directory";
-            }
 
+        Path dir = Paths.get(workingDirectory);
+        if (!Files.isDirectory(dir)) {
+            return "Error: '" + workingDirectory + "' is not a valid directory";
+        }
+        return executeCommand(command, dir);
+    }
+
+    /**
+     * Executes a shell command with output capture, line-count capping, and timeout.
+     *
+     * @param command          the shell command to run
+     * @param workingDirectory the directory to run in, or {@code null} for the current directory
+     */
+    private String executeCommand(String command, Path workingDirectory) {
+        try {
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", command);
-            pb.directory(dir.toFile());
+            if (workingDirectory != null) {
+                pb.directory(workingDirectory.toFile());
+            }
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
@@ -388,17 +364,19 @@ public class FileSystemTools {
                 while ((line = reader.readLine()) != null) {
                     output.append(line).append("\n");
                     lineCount++;
-                    if (lineCount >= 200) {
-                        output.append("\n... (output truncated at 200 lines)\n");
+                    if (lineCount >= MAX_COMMAND_OUTPUT_LINES) {
+                        output.append("\n... (output truncated at ")
+                              .append(MAX_COMMAND_OUTPUT_LINES).append(" lines)\n");
                         break;
                     }
                 }
             }
 
-            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+            boolean finished = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                return "Command timed out after 60 seconds. Partial output:\n" + output;
+                return "Command timed out after " + COMMAND_TIMEOUT_SECONDS
+                        + " seconds. Partial output:\n" + output;
             }
 
             int exitCode = process.exitValue();

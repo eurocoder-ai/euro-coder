@@ -1,5 +1,6 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.agent;
 
+import dev.aihelpcenter.sovereigncli.tool.FileSystemTools;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
@@ -8,11 +9,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.Set;
+
 /**
  * Routes user requests through AI agents depending on the current mode:
  * <p>
  * <b>Auto mode</b> (hybrid):
- *   Planner model explores the project + produces a plan → Coder model executes.
+ *   Planner model explores the project + produces a plan -> Coder model executes.
  *   Complex tasks get both; simple tasks go directly to the Coder.
  * <p>
  * <b>Single-model mode</b>:
@@ -31,6 +34,14 @@ import org.springframework.stereotype.Service;
 public class HybridAgentRouter {
 
     private static final Logger log = LoggerFactory.getLogger(HybridAgentRouter.class);
+
+    /** Keywords that indicate a complex task requiring the hybrid Planner-then-Coder flow. */
+    private static final Set<String> COMPLEX_TASK_KEYWORDS = Set.of(
+            "refactor", "rewrite", "redesign", "architect", "migrate",
+            "convert", "optimize", "review", "build a", "create a project",
+            "multi-file", "full application", "add tests", "add junit",
+            "write tests", "test coverage", "implement", "plan"
+    );
 
     private final ModelManager modelManager;
     private final FileSystemTools fileSystemTools;
@@ -199,8 +210,6 @@ public class HybridAgentRouter {
 
     /**
      * Auto-routing: uses hybrid mode for complex tasks, direct mode for simple ones.
-     * In "auto" mode, complex tasks go through Planner → Coder (two different models).
-     * In single-model mode, everything goes through the Direct agent.
      */
     public HybridResult chat(String userMessage) {
         ensureInitialized();
@@ -212,18 +221,14 @@ public class HybridAgentRouter {
     }
 
     /**
-     * Full hybrid flow: Planner explores + plans → Coder executes.
-     * The Planner receives a project context snapshot so it starts with awareness
-     * of the project structure before using its tools for deeper exploration.
+     * Full hybrid flow: Planner explores + plans -> Coder executes.
      */
     public HybridResult chatHybrid(String userMessage) {
         ensureInitialized();
         log.info("HYBRID mode — Planner ({}) analyzing...", modelManager.getPlannerModelName());
 
-        // Gather project context automatically
         String projectContext = gatherProjectContext();
 
-        // Step 1: Plan (with project context + tools for deeper exploration)
         String enrichedPrompt = String.format("""
                 PROJECT CONTEXT (current directory structure):
                 %s
@@ -237,7 +242,6 @@ public class HybridAgentRouter {
         String plan = planner.plan(enrichedPrompt);
         log.info("Plan generated. Needs code: {}", plan.contains("[NEEDS_CODE]"));
 
-        // Step 2: If code is needed, hand off to Coder
         if (plan.contains("[NEEDS_CODE]")) {
             String cleanPlan = plan.replace("[NEEDS_CODE]", "").trim();
             log.info("CODER ({}) executing plan...", modelManager.getCoderModelName());
@@ -256,21 +260,17 @@ public class HybridAgentRouter {
             return new HybridResult(cleanPlan, result, true);
         }
 
-        // Task was informational — planner already answered it
         String answer = plan.replace("[DONE]", "").trim();
         return new HybridResult(answer, null, false);
     }
 
     /**
      * Direct single-model flow with tools.
-     * Injects project context so the agent starts with awareness.
      */
     public String chatDirect(String userMessage) {
         ensureInitialized();
         log.info("DIRECT mode — {} handling request...", modelManager.getCoderModelName());
 
-        // Inject project context so the agent knows it's working in a real project
-        // and is much more likely to use its tools from the very first message.
         String projectContext = gatherProjectContext();
         String enrichedMessage = String.format("""
                 PROJECT CONTEXT (current directory structure):
@@ -289,8 +289,6 @@ public class HybridAgentRouter {
 
     /**
      * Gathers a lightweight project context snapshot to inject into agent prompts.
-     * This gives agents immediate awareness of the project structure without
-     * requiring them to spend a tool call discovering it.
      */
     String gatherProjectContext() {
         try {
@@ -306,43 +304,6 @@ public class HybridAgentRouter {
     // package-private for testing
     boolean isComplexTask(String message) {
         String lower = message.toLowerCase();
-        return lower.contains("refactor") ||
-                lower.contains("rewrite") ||
-                lower.contains("redesign") ||
-                lower.contains("architect") ||
-                lower.contains("migrate") ||
-                lower.contains("convert") ||
-                lower.contains("optimize") ||
-                lower.contains("review") ||
-                lower.contains("build a") ||
-                lower.contains("create a project") ||
-                lower.contains("multi-file") ||
-                lower.contains("full application") ||
-                lower.contains("add tests") ||
-                lower.contains("add junit") ||
-                lower.contains("write tests") ||
-                lower.contains("test coverage") ||
-                lower.contains("implement") ||
-                lower.contains("plan");
-    }
-
-    // ── Result record ────────────────────────────────────────────────
-
-    public record HybridResult(String plan, String execution, boolean wasHybrid) {
-
-        public String toDisplayString() {
-            StringBuilder sb = new StringBuilder();
-            if (wasHybrid && plan != null) {
-                sb.append("PLAN:\n");
-                sb.append(plan).append("\n\n");
-                sb.append("EXECUTION:\n");
-                sb.append(execution != null ? execution : "(no execution needed)");
-            } else if (plan != null) {
-                sb.append(plan);
-            } else {
-                sb.append(execution != null ? execution : "(no response)");
-            }
-            return sb.toString();
-        }
+        return COMPLEX_TASK_KEYWORDS.stream().anyMatch(lower::contains);
     }
 }

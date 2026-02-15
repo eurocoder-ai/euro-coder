@@ -1,4 +1,4 @@
-package dev.aihelpcenter.sovereigncli;
+package dev.aihelpcenter.sovereigncli.tool;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,7 +76,6 @@ class FileSystemToolsTest {
     @Test
     void getProjectTree_emptyDirectory() {
         String result = tools.getProjectTree(tempDir.toString(), 3);
-        // Should contain just the root path, no children
         assertThat(result).doesNotContain("├──");
         assertThat(result).doesNotContain("└──");
     }
@@ -85,7 +84,6 @@ class FileSystemToolsTest {
     void getProjectTree_defaultDepthWhenZero() throws IOException {
         Files.createFile(tempDir.resolve("file.txt"));
 
-        // depth=0 should default to 4
         String result = tools.getProjectTree(tempDir.toString(), 0);
         assertThat(result).contains("file.txt");
     }
@@ -171,8 +169,8 @@ class FileSystemToolsTest {
         assertThat(result).contains("line2");
         assertThat(result).contains("line3");
         assertThat(result).contains("line4");
-        assertThat(result).doesNotContain("line1\n");  // line1 shouldn't be in content
-        assertThat(result).doesNotContain("line5\n");  // line5 shouldn't be in content
+        assertThat(result).doesNotContain("line1\n");
+        assertThat(result).doesNotContain("line5\n");
     }
 
     @Test
@@ -302,7 +300,6 @@ class FileSystemToolsTest {
         Files.writeString(tempDir.resolve("code.java"), "import Something;");
         Files.write(tempDir.resolve("image.png"), new byte[]{0x00, 0x01, 0x02});
 
-        // Should not crash on binary files
         String result = tools.searchContent(tempDir.toString(), "import");
         assertThat(result).contains("code.java");
     }
@@ -490,7 +487,6 @@ class FileSystemToolsTest {
     @Test
     void runCommand_invalidCommand_reportsError() {
         String result = tools.runCommand("nonexistent_command_xyz_123");
-        // Should contain exit code or error
         assertThat(result).containsAnyOf("Command exited with code", "not found");
     }
 
@@ -505,7 +501,6 @@ class FileSystemToolsTest {
     @Test
     void runCommandInDirectory_runsInSpecifiedDir() throws IOException {
         String result = tools.runCommandInDirectory("pwd", tempDir.toString());
-        // macOS resolves /var -> /private/var, so normalize both sides
         assertThat(Path.of(result).toRealPath().toString())
                 .isEqualTo(tempDir.toRealPath().toString());
     }

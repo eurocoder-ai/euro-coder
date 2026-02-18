@@ -13,25 +13,18 @@ import org.springframework.stereotype.Service;
 import java.io.Console;
 
 /**
- * Manages user permission prompts for agent operations based on the
- * configured {@link TrustLevel}.
+ * Prompts the user for permission before agent operations, based on {@link TrustLevel}.
  * <p>
- * When a destructive or write operation is attempted:
- * <ul>
- *   <li>{@link TrustLevel#TRUST_ALL} — always allows without prompting</li>
- *   <li>{@link TrustLevel#ASK_DESTRUCTIVE} — prompts for destructive ops only</li>
- *   <li>{@link TrustLevel#ASK_ALWAYS} — prompts for all write and destructive ops</li>
- * </ul>
- * <p>
- * Uses JLine's {@link Terminal} for interactive prompting inside Spring Shell.
- * Falls back to {@link System#console()} for standalone execution.
- * If no interactive input is available (e.g. CI/CD), the operation is
- * denied unless trust level is {@link TrustLevel#TRUST_ALL}.
+ * Uses JLine's {@link Terminal} inside Spring Shell, falls back to {@link System#console()}
+ * for standalone execution, and denies if no interactive input is available (CI/CD).
  */
 @Service
 public class PermissionService {
 
     private static final Logger log = LoggerFactory.getLogger(PermissionService.class);
+
+    private static final String PROMPT_FORMAT = "  \u26a0 SECURITY: Agent wants to %s: %s";
+    private static final String CONFIRM_PROMPT = "  Allow? [y/N]: ";
 
     private final ApiKeyManager apiKeyManager;
     private volatile TrustLevel trustLevel;
@@ -42,34 +35,20 @@ public class PermissionService {
     @Autowired
     public PermissionService(ApiKeyManager apiKeyManager) {
         this.apiKeyManager = apiKeyManager;
-        String saved = apiKeyManager.getTrustLevel();
-        this.trustLevel = TrustLevel.fromId(saved);
+        this.trustLevel = TrustLevel.fromId(apiKeyManager.getTrustLevel());
         log.info("PermissionService initialized — trust level: {}", trustLevel.id());
     }
 
-    /**
-     * Package-private constructor for testing with a fixed trust level.
-     */
     PermissionService(TrustLevel trustLevel) {
         this.apiKeyManager = null;
         this.trustLevel = trustLevel;
     }
 
-    /**
-     * Setter injection for JLine Terminal — available inside Spring Shell,
-     * null in standalone or test environments.
-     */
     @Autowired(required = false)
     public void setTerminal(Terminal terminal) {
         this.terminal = terminal;
     }
 
-    /**
-     * Requests user permission for an operation. Returns {@code true} if allowed.
-     *
-     * @param operation   the tool method name
-     * @param description a human-readable description of what will happen
-     */
     public boolean requestPermission(String operation, String description) {
         if (trustLevel == TrustLevel.TRUST_ALL) {
             return true;
@@ -93,10 +72,6 @@ public class PermissionService {
         return false;
     }
 
-    /**
-     * Resets the interrupt flag. Call at the start of each new agent request
-     * so that a previous Ctrl+C does not auto-deny future turns.
-     */
     public void clearInterrupt() {
         interrupted = false;
     }
@@ -123,8 +98,7 @@ public class PermissionService {
             terminal.writer().println(formatPrompt(operation, description));
             terminal.writer().flush();
 
-            LineReader reader = getOrCreatePromptReader();
-            String response = reader.readLine("  Allow? [y/N]: ");
+            String response = getOrCreatePromptReader().readLine(CONFIRM_PROMPT);
 
             boolean allowed = response != null && response.trim().equalsIgnoreCase("y");
             log.info("Permission {} for {} on '{}'",
@@ -141,10 +115,9 @@ public class PermissionService {
     }
 
     private boolean promptViaConsole(String operation, String description, Console console) {
-        String prompt = formatPrompt(operation, description);
         System.out.println();
-        System.out.println(prompt);
-        String response = console.readLine("  Allow? [y/N]: ");
+        System.out.println(formatPrompt(operation, description));
+        String response = console.readLine(CONFIRM_PROMPT);
 
         boolean allowed = response != null && response.trim().equalsIgnoreCase("y");
         log.info("Permission {} for {} on '{}'",
@@ -162,7 +135,7 @@ public class PermissionService {
     }
 
     private String formatPrompt(String operation, String description) {
-        String action = switch (operation) {
+        String humanReadableAction = switch (operation) {
             case "deleteFile" -> "DELETE file";
             case "writeFile" -> "WRITE to file";
             case "appendToFile" -> "APPEND to file";
@@ -170,6 +143,6 @@ public class PermissionService {
             case "runCommand", "runCommandInDirectory" -> "EXECUTE command";
             default -> operation;
         };
-        return String.format("  \u26a0 SECURITY: Agent wants to %s: %s", action, description);
+        return String.format(PROMPT_FORMAT, humanReadableAction, description);
     }
 }

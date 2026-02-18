@@ -1,26 +1,21 @@
 package eu.eurocoder.sovereigncli.agent;
 
-/**
- * The result of a routed agent request, which may include a plan and/or an execution.
- *
- * @param plan       the plan produced by the Planner agent (may be {@code null})
- * @param execution  the output produced by the Coder/Direct agent (may be {@code null})
- * @param wasHybrid  {@code true} if the request went through the Planner → Coder pipeline
- */
 public record HybridResult(String plan, String execution, boolean wasHybrid) {
 
-    /** Formats the result for display in the shell. */
+    private static final String NO_EXECUTION = "(no execution needed)";
+    private static final String NO_RESPONSE = "(no response)";
+
     public String toDisplayString() {
         StringBuilder sb = new StringBuilder();
         if (wasHybrid && plan != null) {
             sb.append("PLAN:\n");
             sb.append(plan).append("\n\n");
             sb.append("EXECUTION:\n");
-            sb.append(execution != null ? execution : "(no execution needed)");
+            sb.append(execution != null ? execution : NO_EXECUTION);
         } else if (plan != null) {
             sb.append(plan);
         } else {
-            sb.append(execution != null ? execution : "(no response)");
+            sb.append(execution != null ? execution : NO_RESPONSE);
         }
         return sb.toString();
     }

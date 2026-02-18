@@ -35,8 +35,8 @@ import java.util.Set;
 public class HybridAgentRouter {
 
     private static final Logger log = LoggerFactory.getLogger(HybridAgentRouter.class);
+    private static final int CHAT_MEMORY_WINDOW_SIZE = 100;
 
-    /** Keywords that indicate a complex task requiring the hybrid Planner-then-Coder flow. */
     private static final Set<String> COMPLEX_TASK_KEYWORDS = Set.of(
             "refactor", "rewrite", "redesign", "architect", "migrate",
             "convert", "optimize", "review", "build a", "create a project",
@@ -52,8 +52,6 @@ public class HybridAgentRouter {
     private CoderAgent coder;
     private DirectAgent directAgent;
     private boolean initialized = false;
-
-    // ── Inner AI Service interfaces ──────────────────────────────────
 
     interface PlannerAgent {
         @SystemMessage("""
@@ -157,8 +155,6 @@ public class HybridAgentRouter {
         String chat(@UserMessage String userMessage);
     }
 
-    // ── Constructor ──────────────────────────────────────────────────
-
     public HybridAgentRouter(ModelManager modelManager, FileSystemTools fileSystemTools,
                              GitContextProvider gitContextProvider) {
         this.modelManager = modelManager;
@@ -166,18 +162,12 @@ public class HybridAgentRouter {
         this.gitContextProvider = gitContextProvider;
     }
 
-    // ── Lazy initialization ──────────────────────────────────────────
-
     private synchronized void ensureInitialized() {
         if (!initialized) {
             buildAgents();
         }
     }
 
-    /**
-     * Rebuilds all AI service agents (e.g. after a model switch).
-     * Chat memory is reset.
-     */
     public synchronized void reinitialize() {
         this.initialized = false;
         this.planner = null;
@@ -191,19 +181,19 @@ public class HybridAgentRouter {
 
         this.planner = AiServices.builder(PlannerAgent.class)
                 .chatModel(modelManager.getPlannerModel())
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(30))
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(CHAT_MEMORY_WINDOW_SIZE))
                 .tools(fileSystemTools)
                 .build();
 
         this.coder = AiServices.builder(CoderAgent.class)
                 .chatModel(modelManager.getCoderModel())
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(30))
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(CHAT_MEMORY_WINDOW_SIZE))
                 .tools(fileSystemTools)
                 .build();
 
         this.directAgent = AiServices.builder(DirectAgent.class)
                 .chatModel(modelManager.getCoderModel())
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(30))
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(CHAT_MEMORY_WINDOW_SIZE))
                 .tools(fileSystemTools)
                 .build();
 
@@ -212,11 +202,6 @@ public class HybridAgentRouter {
                 modelManager.getPlannerModelName(), modelManager.getCoderModelName());
     }
 
-    // ── Public API ───────────────────────────────────────────────────
-
-    /**
-     * Auto-routing: uses hybrid mode for complex tasks, direct mode for simple ones.
-     */
     public HybridResult chat(String userMessage) {
         ensureInitialized();
         if (modelManager.isAutoMode() && isComplexTask(userMessage)) {
@@ -226,9 +211,6 @@ public class HybridAgentRouter {
         return new HybridResult(null, result, false);
     }
 
-    /**
-     * Full hybrid flow: Planner explores + plans -> Coder executes.
-     */
     public HybridResult chatHybrid(String userMessage) {
         ensureInitialized();
         log.info("HYBRID mode — Planner ({}) analyzing...", modelManager.getPlannerModelName());
@@ -273,9 +255,6 @@ public class HybridAgentRouter {
         return new HybridResult(answer, null, false);
     }
 
-    /**
-     * Direct single-model flow with tools.
-     */
     public String chatDirect(String userMessage) {
         ensureInitialized();
         log.info("DIRECT mode — {} handling request...", modelManager.getCoderModelName());
@@ -298,11 +277,6 @@ public class HybridAgentRouter {
         return directAgent.chat(enrichedMessage);
     }
 
-    // ── Context gathering ────────────────────────────────────────────
-
-    /**
-     * Gathers a lightweight project context snapshot to inject into agent prompts.
-     */
     String gatherProjectContext() {
         try {
             return fileSystemTools.getProjectTree(".", 3);
@@ -312,9 +286,6 @@ public class HybridAgentRouter {
         }
     }
 
-    /**
-     * Gathers git context (branch, status, recent commits) for agent prompts.
-     */
     String gatherGitContext() {
         try {
             return gitContextProvider.gatherGitContext(null);
@@ -323,8 +294,6 @@ public class HybridAgentRouter {
             return "";
         }
     }
-
-    // ── Helpers ──────────────────────────────────────────────────────
 
     boolean isComplexTask(String message) {
         String lower = message.toLowerCase();

@@ -31,10 +31,6 @@ public enum TrustLevel {
         return description;
     }
 
-    /**
-     * Resolves a trust level from its string id (case-insensitive, trimmed).
-     * Returns {@link #ASK_DESTRUCTIVE} for {@code null}, blank, or unknown values.
-     */
     public static TrustLevel fromId(String id) {
         if (id == null || id.isBlank()) {
             return ASK_DESTRUCTIVE;

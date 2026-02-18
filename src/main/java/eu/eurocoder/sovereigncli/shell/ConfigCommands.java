@@ -20,6 +20,9 @@ import java.util.List;
 @ShellComponent
 public class ConfigCommands {
 
+    private static final int API_KEY_MASK_MIN_LENGTH = 8;
+    private static final int API_KEY_MASK_VISIBLE_CHARS = 4;
+
     private final HybridAgentRouter router;
     private final ModelManager modelManager;
     private final ApiKeyManager apiKeyManager;
@@ -29,8 +32,6 @@ public class ConfigCommands {
         this.modelManager = modelManager;
         this.apiKeyManager = apiKeyManager;
     }
-
-    // ── Provider command ─────────────────────────────────────────────
 
     @ShellMethod(key = "provider", value = "Show or switch the AI provider (mistral / ollama)")
     public String provider(@ShellOption(defaultValue = "") String name) {
@@ -68,12 +69,10 @@ public class ConfigCommands {
         String trimmedName = name.trim();
         Provider newProvider = Provider.fromId(trimmedName);
 
-        // fromId() defaults to MISTRAL for unknown values — detect that case
         if (!newProvider.id().equalsIgnoreCase(trimmedName)) {
             return colorize("Unknown provider: '" + name + "'. Use 'mistral' or 'ollama'.", AttributedStyle.RED);
         }
 
-        // If switching to Mistral, check for API key
         if (newProvider == Provider.MISTRAL && !apiKeyManager.hasApiKey()) {
             return colorize("No Mistral API key configured. Set one first with 'config-key <key>'.", AttributedStyle.RED);
         }
@@ -97,19 +96,17 @@ public class ConfigCommands {
         return sb.toString();
     }
 
-    // ── Model command ────────────────────────────────────────────────
-
     @ShellMethod(key = "model", value = "Show/switch models. Subcommands: list, planner <name>, coder <name>")
     public String model(
             @ShellOption(defaultValue = "") String action,
             @ShellOption(defaultValue = "") String arg) {
 
-        String a = action.trim().toLowerCase();
+        String normalizedAction = action.trim().toLowerCase();
 
-        if (a.isEmpty()) {
+        if (normalizedAction.isEmpty()) {
             return showCurrentModel();
         }
-        return switch (a) {
+        return switch (normalizedAction) {
             case "list" -> listModels();
             case "planner" -> arg.isBlank()
                     ? colorize("Usage: model planner <model-name>", AttributedStyle.YELLOW)
@@ -120,9 +117,9 @@ public class ConfigCommands {
             case "auto" -> switchModel("auto");
             default -> {
                 if (arg.isBlank()) {
-                    yield switchModel(a);
+                    yield switchModel(normalizedAction);
                 }
-                yield colorize("Unknown subcommand: '" + a + "'. Try: model list | model planner <name> | model coder <name> | model <name>", AttributedStyle.RED);
+                yield colorize("Unknown subcommand: '" + normalizedAction + "'. Try: model list | model planner <name> | model coder <name> | model <name>", AttributedStyle.RED);
             }
         };
     }
@@ -268,8 +265,6 @@ public class ConfigCommands {
         return result;
     }
 
-    // ── Config commands ──────────────────────────────────────────────
-
     @ShellMethod(key = "config-key", value = "Update or replace your Mistral API key")
     public String configKey(@ShellOption(help = "Your Mistral API key") String key) {
         try {
@@ -293,9 +288,7 @@ public class ConfigCommands {
     @ShellMethod(key = "config-show", value = "Show configuration info (key is masked)")
     public String configShow() {
         String key = apiKeyManager.getApiKey();
-        String masked = (key != null && key.length() > 8)
-                ? key.substring(0, 4) + "****" + key.substring(key.length() - 4)
-                : "(not set)";
+        String masked = maskApiKey(key);
 
         String mode = modelManager.getCurrentMode();
         String providerName = modelManager.getProvider().displayName();
@@ -365,6 +358,15 @@ public class ConfigCommands {
                 modelManager.getPlannerModelName(),
                 modelManager.getCoderModelName()
         );
+    }
+
+    private String maskApiKey(String key) {
+        if (key == null || key.length() <= API_KEY_MASK_MIN_LENGTH) {
+            return "(not set)";
+        }
+        return key.substring(0, API_KEY_MASK_VISIBLE_CHARS)
+                + "****"
+                + key.substring(key.length() - API_KEY_MASK_VISIBLE_CHARS);
     }
 
     private String colorize(String text, int color) {

@@ -13,12 +13,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * Provides git-aware context to inject into agent prompts.
- * Extracts the current branch, working tree status, and recent commit
- * history so agents can make informed decisions about version control.
- * <p>
- * All git commands run with a short timeout and failures are handled
- * gracefully — if the project is not a git repo, an empty context is returned.
+ * Provides git-aware context (branch, status, recent commits) for agent prompts.
+ * All git commands run with a short timeout; returns empty context if not a git repo.
  */
 @Service
 public class GitContextProvider {
@@ -26,13 +22,8 @@ public class GitContextProvider {
     private static final Logger log = LoggerFactory.getLogger(GitContextProvider.class);
     private static final int GIT_TIMEOUT_SECONDS = 5;
     private static final int MAX_RECENT_COMMITS = 5;
+    private static final int MAX_DIFF_STAT_LINES = 10;
 
-    /**
-     * Gathers a concise git context snapshot for the given directory.
-     *
-     * @param directory the project root (or {@code null} for current directory)
-     * @return formatted git context string, or empty string if not a git repo
-     */
     public String gatherGitContext(String directory) {
         Path dir = (directory == null || directory.isBlank())
                 ? Paths.get("").toAbsolutePath()
@@ -73,16 +64,13 @@ public class GitContextProvider {
         if (!diff.isEmpty()) {
             sb.append("  Uncommitted changes:\n");
             diff.lines()
-                    .limit(10)
+                    .limit(MAX_DIFF_STAT_LINES)
                     .forEach(line -> sb.append("    ").append(line).append("\n"));
         }
 
         return sb.toString().trim();
     }
 
-    /**
-     * Checks if the given directory is inside a git repository.
-     */
     boolean isGitRepo(Path directory) {
         try {
             Path current = directory;
@@ -98,10 +86,6 @@ public class GitContextProvider {
         }
     }
 
-    /**
-     * Runs a git command and returns the trimmed stdout output.
-     * Returns an empty string on any failure.
-     */
     String runGit(Path directory, String... command) {
         try {
             ProcessBuilder pb = new ProcessBuilder(command);

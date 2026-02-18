@@ -14,18 +14,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Central security orchestrator for all agent tool operations.
- * Combines three security layers:
- * <ol>
- *   <li><b>Sandbox</b> — restricts file/command access to allowed directories</li>
- *   <li><b>Permissions</b> — prompts user approval for destructive operations</li>
- *   <li><b>Audit</b> — logs every tool invocation with timestamps and outcomes</li>
- * </ol>
- * <p>
- * Each tool method in {@code FileSystemTools} calls either
- * {@link #checkFileAccess(String, String)} or {@link #checkCommandAccess(String, String, Path)}
- * before proceeding. If the check returns a non-empty Optional, the operation is
- * blocked and the denial message is returned to the agent.
+ * Central security orchestrator combining sandbox, permissions, and audit.
+ * Every tool in {@code FileSystemTools} calls {@link #checkFileAccess} or
+ * {@link #checkCommandAccess} before proceeding.
  */
 @Service
 public class ToolSecurityManager {
@@ -39,6 +30,13 @@ public class ToolSecurityManager {
     private static final Set<String> WRITE_OPERATIONS = Set.of(
             "writeFile", "appendToFile", "createDirectory"
     );
+
+    private static final String SANDBOX_FILE_BLOCKED_FORMAT =
+            "SANDBOX BLOCKED: '%s' is outside allowed directory '%s'";
+    private static final String SANDBOX_DIR_BLOCKED_FORMAT =
+            "SANDBOX BLOCKED: Working directory '%s' is outside sandbox '%s'";
+    private static final String USER_DENIED_FILE_FORMAT = "DENIED: User declined %s on '%s'";
+    private static final String USER_DENIED_COMMAND_FORMAT = "DENIED: User declined execution of '%s'";
 
     private final AuditLog auditLog;
     private final PermissionService permissionService;
@@ -57,9 +55,6 @@ public class ToolSecurityManager {
         log.info("Security manager initialized — sandbox root: {}", sandboxRoot);
     }
 
-    /**
-     * Package-private constructor for testing with explicit configuration.
-     */
     ToolSecurityManager(AuditLog auditLog, PermissionService permissionService,
                         boolean sandboxEnabled, Path sandboxRoot) {
         this.auditLog = auditLog;
@@ -68,64 +63,46 @@ public class ToolSecurityManager {
         this.sandboxRoot = sandboxRoot;
     }
 
-    /**
-     * Checks whether a file operation is allowed.
-     *
-     * @param operation the tool method name (e.g. {@code "writeFile"}, {@code "deleteFile"})
-     * @param path      the target file path
-     * @return empty if allowed; a denial message if blocked
-     */
     public Optional<String> checkFileAccess(String operation, String path) {
         Path resolved = Paths.get(path).toAbsolutePath().normalize();
 
         if (sandboxEnabled && !isWithinSandbox(resolved)) {
-            String msg = String.format("SANDBOX BLOCKED: '%s' is outside allowed directory '%s'", path, sandboxRoot);
-            auditLog.record(AuditEntry.denied(operation, Map.of("path", path), msg));
-            return Optional.of(msg);
+            String denial = String.format(SANDBOX_FILE_BLOCKED_FORMAT, path, sandboxRoot);
+            auditLog.record(AuditEntry.denied(operation, Map.of("path", path), denial));
+            return Optional.of(denial);
         }
 
         if (requiresPermission(operation)
                 && !permissionService.requestPermission(operation, path)) {
-            String msg = "DENIED: User declined " + operation + " on '" + path + "'";
-            auditLog.record(AuditEntry.denied(operation, Map.of("path", path), msg));
-            return Optional.of(msg);
+            String denial = String.format(USER_DENIED_FILE_FORMAT, operation, path);
+            auditLog.record(AuditEntry.denied(operation, Map.of("path", path), denial));
+            return Optional.of(denial);
         }
 
         auditLog.record(AuditEntry.allowed(operation, Map.of("path", path)));
         return Optional.empty();
     }
 
-    /**
-     * Checks whether a shell command execution is allowed.
-     *
-     * @param operation        the tool method name ({@code "runCommand"} or {@code "runCommandInDirectory"})
-     * @param command          the shell command string
-     * @param workingDirectory the directory to run in, or {@code null} for CWD
-     * @return empty if allowed; a denial message if blocked
-     */
     public Optional<String> checkCommandAccess(String operation, String command, Path workingDirectory) {
         if (sandboxEnabled && workingDirectory != null) {
             Path resolved = workingDirectory.toAbsolutePath().normalize();
             if (!isWithinSandbox(resolved)) {
-                String msg = String.format("SANDBOX BLOCKED: Working directory '%s' is outside sandbox '%s'",
-                        workingDirectory, sandboxRoot);
-                auditLog.record(AuditEntry.denied(operation, Map.of("command", command), msg));
-                return Optional.of(msg);
+                String denial = String.format(SANDBOX_DIR_BLOCKED_FORMAT, workingDirectory, sandboxRoot);
+                auditLog.record(AuditEntry.denied(operation, Map.of("command", command), denial));
+                return Optional.of(denial);
             }
         }
 
         if (requiresPermission(operation)
                 && !permissionService.requestPermission(operation, command)) {
-            String msg = "DENIED: User declined execution of '" + command + "'";
-            auditLog.record(AuditEntry.denied(operation, Map.of("command", command), msg));
-            return Optional.of(msg);
+            String denial = String.format(USER_DENIED_COMMAND_FORMAT, command);
+            auditLog.record(AuditEntry.denied(operation, Map.of("command", command), denial));
+            return Optional.of(denial);
         }
 
         auditLog.record(AuditEntry.allowed(operation, Map.of("command", command)));
         return Optional.empty();
     }
-
-    // ── Sandbox configuration ────────────────────────────────────────
 
     public Path getSandboxRoot() {
         return sandboxRoot;
@@ -159,8 +136,6 @@ public class ToolSecurityManager {
         additionalAllowedPaths.clear();
     }
 
-    // ── Delegated accessors ──────────────────────────────────────────
-
     public AuditLog getAuditLog() {
         return auditLog;
     }
@@ -168,8 +143,6 @@ public class ToolSecurityManager {
     public PermissionService getPermissionService() {
         return permissionService;
     }
-
-    // ── Internal ─────────────────────────────────────────────────────
 
     boolean isWithinSandbox(Path absolutePath) {
         if (absolutePath.startsWith(sandboxRoot)) {

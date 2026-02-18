@@ -27,7 +27,6 @@ public class ApiKeyManager {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /** Override in tests to redirect config storage to a temp directory. */
     public Path getConfigDir() {
         return DEFAULT_CONFIG_DIR;
     }
@@ -69,8 +68,6 @@ public class ApiKeyManager {
         log.info("Model mode saved: {}", mode);
     }
 
-    // ── Provider (mistral / ollama) ──────────────────────────────────
-
     public String getProvider() {
         return readConfigField("provider");
     }
@@ -79,8 +76,6 @@ public class ApiKeyManager {
         writeConfigField("provider", provider);
         log.info("Provider saved: {}", provider);
     }
-
-    // ── Ollama settings ──────────────────────────────────────────────
 
     public String getOllamaBaseUrl() {
         String url = readConfigField("ollama_base_url");
@@ -91,8 +86,6 @@ public class ApiKeyManager {
         writeConfigField("ollama_base_url", url);
         log.info("Ollama base URL saved: {}", url);
     }
-
-    // ── Security settings ─────────────────────────────────────────────
 
     public String getTrustLevel() {
         return readConfigField("trust_level");
@@ -105,7 +98,6 @@ public class ApiKeyManager {
 
     public boolean getSandboxEnabled() {
         String value = readConfigField("sandbox_enabled");
-        // Default to true if not set
         return value == null || Boolean.parseBoolean(value);
     }
 
@@ -113,8 +105,6 @@ public class ApiKeyManager {
         writeConfigField("sandbox_enabled", String.valueOf(enabled));
         log.info("Sandbox enabled saved: {}", enabled);
     }
-
-    // ── Custom planner/coder model overrides ────────────────────────
 
     public String getCustomPlannerModel() {
         return readConfigField("custom_planner_model");

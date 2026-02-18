@@ -45,7 +45,18 @@ public class ModelManager {
 
     private static final Logger log = LoggerFactory.getLogger(ModelManager.class);
 
-    // ── Suggested models per provider (curated, not restrictive) ─────
+    private static final int HTTP_CONNECT_TIMEOUT_SECONDS = 5;
+    private static final int MISTRAL_API_TIMEOUT_SECONDS = 10;
+    private static final int MAX_MODEL_DESCRIPTION_LENGTH = 60;
+    private static final double BYTES_PER_GIGABYTE = 1_000_000_000.0;
+
+    private static final String MISTRAL_DEFAULT_PLANNER = "mistral-large-latest";
+    private static final String MISTRAL_DEFAULT_CODER = "codestral-latest";
+    private static final String OLLAMA_DEFAULT_PLANNER = "llama3.1";
+    private static final String OLLAMA_DEFAULT_CODER = "qwen3:4b";
+    private static final String MISTRAL_API_MODELS_URL = "https://api.mistral.ai/v1/models";
+    private static final String OLLAMA_TAGS_PATH = "/api/tags";
+    private static final String AUTO_MODE = "auto";
 
     public static final List<ModelOption> MISTRAL_SUGGESTIONS = List.of(
             new ModelOption("mistral-large-latest",
@@ -62,8 +73,7 @@ public class ModelManager {
                     "Open-weight, good general purpose")
     );
 
-    // Curated Ollama models known to support tool calling.
-    // See: https://ollama.com/search?c=tools
+    /** Curated Ollama models known to support tool calling. See: https://ollama.com/search?c=tools */
     public static final List<ModelOption> OLLAMA_SUGGESTIONS = List.of(
             new ModelOption("llama3.1",
                     "Llama 3.1 8B",
@@ -88,22 +98,11 @@ public class ModelManager {
                     "Most capable local model (40GB). Needs 48GB+ RAM.")
     );
 
-    // ── Default auto-mode pairings ──────────────────────────────────
-
-    private static final String MISTRAL_DEFAULT_PLANNER = "mistral-large-latest";
-    private static final String MISTRAL_DEFAULT_CODER = "codestral-latest";
-    private static final String OLLAMA_DEFAULT_PLANNER = "llama3.1";
-    private static final String OLLAMA_DEFAULT_CODER = "qwen3:4b";
-
-    // ── Dependencies ────────────────────────────────────────────────
-
     private final ApiKeyManager apiKeyManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
+            .connectTimeout(Duration.ofSeconds(HTTP_CONNECT_TIMEOUT_SECONDS))
             .build();
-
-    // ── Configuration (from application.properties) ─────────────────
 
     @Value("${eurocoder.planner.temperature:0.3}")
     private double plannerTemperature;
@@ -111,40 +110,31 @@ public class ModelManager {
     @Value("${eurocoder.coder.temperature:0.2}")
     private double coderTemperature;
 
-    @Value("${eurocoder.timeout:120}")
+    @Value("${eurocoder.timeout:180}")
     private int timeoutSeconds;
 
-    // ── State ───────────────────────────────────────────────────────
+    @Value("${eurocoder.max-retries:1}")
+    private int maxRetries;
 
     private Provider provider;
     private String currentMode;
-    private String customPlannerModel;  // null = use default for mode
-    private String customCoderModel;    // null = use default for mode
+    private String customPlannerModel;
+    private String customCoderModel;
     private ChatModel plannerModel;
     private ChatModel coderModel;
-
-    // ── Constructor ─────────────────────────────────────────────────
 
     public ModelManager(ApiKeyManager apiKeyManager) {
         this.apiKeyManager = apiKeyManager;
 
-        // Load persisted provider
-        String savedProvider = apiKeyManager.getProvider();
-        this.provider = Provider.fromId(savedProvider);
-
-        // Load persisted mode
+        this.provider = Provider.fromId(apiKeyManager.getProvider());
         String savedMode = apiKeyManager.getModelMode();
-        this.currentMode = (savedMode != null && !savedMode.isBlank()) ? savedMode : "auto";
-
-        // Load custom planner/coder overrides
+        this.currentMode = (savedMode != null && !savedMode.isBlank()) ? savedMode : AUTO_MODE;
         this.customPlannerModel = nullIfBlank(apiKeyManager.getCustomPlannerModel());
         this.customCoderModel = nullIfBlank(apiKeyManager.getCustomCoderModel());
 
         log.info("ModelManager initialized — provider: {}, mode: {}, planner: {}, coder: {}",
                 provider.id(), currentMode, getPlannerModelName(), getCoderModelName());
     }
-
-    // ── Lazy model accessors ────────────────────────────────────────
 
     public synchronized ChatModel getPlannerModel() {
         if (plannerModel == null) {
@@ -166,12 +156,6 @@ public class ModelManager {
         return coderModel;
     }
 
-    // ── Model switching ─────────────────────────────────────────────
-
-    /**
-     * Switches to a new model mode. If not "auto", both planner and coder
-     * use this single model. Custom overrides are cleared.
-     */
     public synchronized void switchMode(String newMode) {
         this.currentMode = newMode;
         this.customPlannerModel = null;
@@ -188,17 +172,13 @@ public class ModelManager {
         log.info("Switched model mode to: {}", newMode);
     }
 
-    /**
-     * Sets a custom planner model independently. Switches to "auto" mode
-     * if not already, since custom planner/coder only makes sense in auto.
-     */
     public synchronized void setCustomPlannerModel(String modelName) {
-        this.currentMode = "auto";
+        this.currentMode = AUTO_MODE;
         this.customPlannerModel = modelName;
         this.plannerModel = null;
 
         try {
-            apiKeyManager.saveModelMode("auto");
+            apiKeyManager.saveModelMode(AUTO_MODE);
             apiKeyManager.saveCustomPlannerModel(modelName);
         } catch (Exception e) {
             log.warn("Failed to persist custom planner: {}", e.getMessage());
@@ -206,17 +186,13 @@ public class ModelManager {
         log.info("Custom planner set to: {}", modelName);
     }
 
-    /**
-     * Sets a custom coder model independently. Switches to "auto" mode
-     * if not already, since custom planner/coder only makes sense in auto.
-     */
     public synchronized void setCustomCoderModel(String modelName) {
-        this.currentMode = "auto";
+        this.currentMode = AUTO_MODE;
         this.customCoderModel = modelName;
         this.coderModel = null;
 
         try {
-            apiKeyManager.saveModelMode("auto");
+            apiKeyManager.saveModelMode(AUTO_MODE);
             apiKeyManager.saveCustomCoderModel(modelName);
         } catch (Exception e) {
             log.warn("Failed to persist custom coder: {}", e.getMessage());
@@ -224,12 +200,9 @@ public class ModelManager {
         log.info("Custom coder set to: {}", modelName);
     }
 
-    /**
-     * Switches the provider (mistral/ollama) and resets to defaults.
-     */
     public synchronized void switchProvider(Provider newProvider) {
         this.provider = newProvider;
-        this.currentMode = "auto";
+        this.currentMode = AUTO_MODE;
         this.customPlannerModel = null;
         this.customCoderModel = null;
         this.plannerModel = null;
@@ -237,15 +210,13 @@ public class ModelManager {
 
         try {
             apiKeyManager.saveProvider(newProvider.id());
-            apiKeyManager.saveModelMode("auto");
+            apiKeyManager.saveModelMode(AUTO_MODE);
             apiKeyManager.clearCustomModels();
         } catch (Exception e) {
             log.warn("Failed to persist provider: {}", e.getMessage());
         }
         log.info("Switched provider to: {}, mode reset to auto", newProvider.id());
     }
-
-    // ── Queries ─────────────────────────────────────────────────────
 
     public Provider getProvider() {
         return provider;
@@ -264,19 +235,16 @@ public class ModelManager {
     }
 
     public boolean isAutoMode() {
-        return "auto".equalsIgnoreCase(currentMode);
+        return AUTO_MODE.equalsIgnoreCase(currentMode);
     }
 
     public String getPlannerModelName() {
-        // 1. Custom override takes priority
         if (customPlannerModel != null) {
             return customPlannerModel;
         }
-        // 2. Auto mode uses defaults
         if (isAutoMode()) {
             return isMistral() ? MISTRAL_DEFAULT_PLANNER : OLLAMA_DEFAULT_PLANNER;
         }
-        // 3. Single-model mode uses the mode name for both
         return currentMode;
     }
 
@@ -298,10 +266,6 @@ public class ModelManager {
         return isMistral() ? MISTRAL_SUGGESTIONS : OLLAMA_SUGGESTIONS;
     }
 
-    /**
-     * For Ollama: dynamically queries the local Ollama server for installed models.
-     * Returns an empty list if Ollama is not running or on error.
-     */
     public List<ModelOption> getInstalledOllamaModels() {
         if (!isOllama()) {
             return Collections.emptyList();
@@ -310,8 +274,8 @@ public class ModelManager {
         String baseUrl = apiKeyManager.getOllamaBaseUrl();
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/api/tags"))
-                    .timeout(Duration.ofSeconds(5))
+                    .uri(URI.create(baseUrl + OLLAMA_TAGS_PATH))
+                    .timeout(Duration.ofSeconds(HTTP_CONNECT_TIMEOUT_SECONDS))
                     .GET()
                     .build();
 
@@ -335,7 +299,7 @@ public class ModelManager {
                 String size = "";
                 if (model.has("size")) {
                     long bytes = model.get("size").asLong();
-                    size = String.format("%.1fGB", bytes / 1_000_000_000.0);
+                    size = String.format("%.1fGB", bytes / BYTES_PER_GIGABYTE);
                 }
                 String family = "";
                 if (model.has("details")) {
@@ -359,10 +323,6 @@ public class ModelManager {
         }
     }
 
-    /**
-     * For Mistral: dynamically queries the Mistral API for available models.
-     * Returns an empty list if no API key or on error.
-     */
     public List<ModelOption> getRemoteMistralModels() {
         if (!isMistral()) {
             return Collections.emptyList();
@@ -375,8 +335,8 @@ public class ModelManager {
 
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://api.mistral.ai/v1/models"))
-                    .timeout(Duration.ofSeconds(10))
+                    .uri(URI.create(MISTRAL_API_MODELS_URL))
+                    .timeout(Duration.ofSeconds(MISTRAL_API_TIMEOUT_SECONDS))
                     .header("Authorization", "Bearer " + apiKey)
                     .GET()
                     .build();
@@ -402,14 +362,12 @@ public class ModelManager {
                 String description = model.has("description")
                         ? model.get("description").asText()
                         : ownedBy;
-                // Truncate long descriptions
-                if (description.length() > 60) {
-                    description = description.substring(0, 57) + "...";
+                if (description.length() > MAX_MODEL_DESCRIPTION_LENGTH) {
+                    description = description.substring(0, MAX_MODEL_DESCRIPTION_LENGTH - 3) + "...";
                 }
                 result.add(new ModelOption(id, id, description));
             }
 
-            // Sort: latest/recommended first
             result.sort((a, b) -> {
                 boolean aLatest = a.id().contains("latest");
                 boolean bLatest = b.id().contains("latest");
@@ -426,12 +384,8 @@ public class ModelManager {
     }
 
     public boolean isValidModel(String modelId) {
-        // Accept any model name — the curated lists are suggestions, not restrictions.
-        // If the model doesn't exist, the API call will fail with a clear error.
         return modelId != null && !modelId.isBlank();
     }
-
-    // ── Factory ─────────────────────────────────────────────────────
 
     private ChatModel buildModel(String modelName, double temperature) {
         if (isOllama()) {
@@ -451,6 +405,7 @@ public class ModelManager {
                 .modelName(modelName)
                 .temperature(temperature)
                 .timeout(Duration.ofSeconds(timeoutSeconds))
+                .maxRetries(maxRetries)
                 .logRequests(false)
                 .logResponses(false)
                 .build();
@@ -467,8 +422,6 @@ public class ModelManager {
                 .logResponses(false)
                 .build();
     }
-
-    // ── Helpers ──────────────────────────────────────────────────────
 
     private static String nullIfBlank(String s) {
         return (s == null || s.isBlank()) ? null : s;

@@ -22,6 +22,8 @@ import java.util.List;
 public class FirstRunSetup implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(FirstRunSetup.class);
+    private static final int MAX_API_KEY_ATTEMPTS = 5;
+    private static final int MIN_API_KEY_LENGTH = 10;
 
     private final ApiKeyManager apiKeyManager;
     private final ModelManager modelManager;
@@ -41,7 +43,6 @@ public class FirstRunSetup implements ApplicationRunner {
             return;
         }
 
-        // If already configured, just show welcome back
         if (isAlreadyConfigured()) {
             printWelcomeBack();
             return;
@@ -65,8 +66,6 @@ public class FirstRunSetup implements ApplicationRunner {
         printColored("  This agent runs 100% on sovereign infrastructure.", AttributedStyle.WHITE);
         printColored("  Your data stays on YOUR machine.", AttributedStyle.WHITE);
         System.out.println();
-
-        // ── Step 1: Choose provider ──────────────────────────────────
 
         printColored("  STEP 1 — Choose your AI provider", AttributedStyle.YELLOW);
         System.out.println();
@@ -94,15 +93,11 @@ public class FirstRunSetup implements ApplicationRunner {
         printColored("  Provider set to: " + selectedProvider.displayName(), AttributedStyle.GREEN);
         System.out.println();
 
-        // ── Step 2: Provider-specific setup ──────────────────────────
-
         if (selectedProvider == Provider.MISTRAL) {
             setupMistral(console);
         } else {
             setupOllama(console);
         }
-
-        // ── Step 3: Choose model ─────────────────────────────────────
 
         System.out.println();
         printColored("  STEP " + (selectedProvider == Provider.MISTRAL ? "3" : "2")
@@ -137,7 +132,6 @@ public class FirstRunSetup implements ApplicationRunner {
                     selectedMode = models.get(0).id();
                 }
             } catch (NumberFormatException e) {
-                // Treat as custom model name for Ollama
                 if (selectedProvider == Provider.OLLAMA) {
                     selectedMode = choiceStr.trim();
                 } else {
@@ -152,16 +146,12 @@ public class FirstRunSetup implements ApplicationRunner {
         printColored("  Model set to: " + selectedMode, AttributedStyle.GREEN);
         System.out.println();
 
-        // ── Done ─────────────────────────────────────────────────────
-
         printColored("  You're all set! Type 'ask <prompt>' to start.", AttributedStyle.CYAN);
         printColored("  Type 'model' to switch models later.", AttributedStyle.CYAN);
         printColored("  Type 'provider' to switch between Mistral / Ollama.", AttributedStyle.CYAN);
         printColored("  Type 'help' for all available commands.", AttributedStyle.CYAN);
         System.out.println();
     }
-
-    // ── Mistral setup ────────────────────────────────────────────────
 
     private void setupMistral(Console console) {
         printColored("  STEP 2 — Mistral API Key", AttributedStyle.YELLOW);
@@ -185,8 +175,6 @@ public class FirstRunSetup implements ApplicationRunner {
         printColored("  File permissions restricted to owner-only.", AttributedStyle.GREEN);
     }
 
-    // ── Ollama setup ─────────────────────────────────────────────────
-
     private void setupOllama(Console console) {
         printColored("  Ollama base URL (press Enter for default):", AttributedStyle.YELLOW);
         String url = console.readLine("  URL [http://localhost:11434]: ");
@@ -207,8 +195,6 @@ public class FirstRunSetup implements ApplicationRunner {
         printColored("  Pull models with: 'ollama pull mistral' or 'ollama pull codestral'", AttributedStyle.WHITE);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────
-
     private boolean isAlreadyConfigured() {
         if (apiKeyManager.hasApiKey()) {
             return true;
@@ -218,7 +204,7 @@ public class FirstRunSetup implements ApplicationRunner {
     }
 
     private String promptApiKey(Console console) {
-        for (int attempt = 0; attempt < 5; attempt++) {
+        for (int attempt = 0; attempt < MAX_API_KEY_ATTEMPTS; attempt++) {
             try {
                 char[] chars = console.readPassword("  Key (hidden): ");
                 if (chars == null) {
@@ -231,7 +217,7 @@ public class FirstRunSetup implements ApplicationRunner {
                     printColored("  API key cannot be empty. Please try again.", AttributedStyle.RED);
                     continue;
                 }
-                if (key.length() < 10) {
+                if (key.length() < MIN_API_KEY_LENGTH) {
                     printColored("  That doesn't look like a valid Mistral API key. Please try again.", AttributedStyle.RED);
                     continue;
                 }

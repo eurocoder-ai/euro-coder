@@ -30,6 +30,11 @@ import java.util.stream.Collectors;
 @ShellComponent
 public class SecurityCommands {
 
+    private static final int MAX_AUDIT_DISPLAY_ENTRIES = 20;
+    private static final int MAX_PARAM_DISPLAY_LENGTH = 50;
+    private static final int TIMESTAMP_TIME_START_INDEX = 11;
+    private static final int TIMESTAMP_TIME_END_INDEX = 19;
+
     private final ToolSecurityManager securityManager;
     private HybridAgentRouter agentRouter;
 
@@ -41,8 +46,6 @@ public class SecurityCommands {
     public void setAgentRouter(HybridAgentRouter agentRouter) {
         this.agentRouter = agentRouter;
     }
-
-    // ── Trust level ──────────────────────────────────────────────────
 
     @ShellMethod(key = "trust", value = "Show or set the agent trust level (ask-always, ask-destructive, trust-all)")
     public String trust(@ShellOption(defaultValue = "") String level) {
@@ -89,19 +92,17 @@ public class SecurityCommands {
                 + "\n  " + parsed.description();
     }
 
-    // ── Sandbox ──────────────────────────────────────────────────────
-
     @ShellMethod(key = "sandbox", value = "Show or configure the sandbox (on, off, root <path>, allow <path>)")
     public String sandbox(
             @ShellOption(defaultValue = "") String action,
             @ShellOption(defaultValue = "") String arg) {
 
-        String a = action.trim().toLowerCase();
+        String normalizedAction = action.trim().toLowerCase();
 
-        if (a.isEmpty()) {
+        if (normalizedAction.isEmpty()) {
             return showSandbox();
         }
-        return switch (a) {
+        return switch (normalizedAction) {
             case "on" -> enableSandbox(true);
             case "off" -> enableSandbox(false);
             case "root" -> arg.isBlank()
@@ -111,7 +112,7 @@ public class SecurityCommands {
                     ? colorize("Usage: sandbox allow <path>", AttributedStyle.YELLOW)
                     : addAllowedPath(arg.trim());
             case "reset" -> resetSandbox();
-            default -> colorize("Unknown action: '" + a + "'. Use: on, off, root <path>, allow <path>, reset",
+            default -> colorize("Unknown action: '" + normalizedAction + "'. Use: on, off, root <path>, allow <path>, reset",
                     AttributedStyle.RED);
         };
     }
@@ -168,8 +169,6 @@ public class SecurityCommands {
         return colorize("Sandbox reset to defaults", AttributedStyle.GREEN);
     }
 
-    // ── Audit log ────────────────────────────────────────────────────
-
     @ShellMethod(key = "audit", value = "View or manage the audit log (show, clear, path)")
     public String audit(@ShellOption(defaultValue = "show") String action) {
         AuditLog auditLog = securityManager.getAuditLog();
@@ -185,17 +184,17 @@ public class SecurityCommands {
     }
 
     private String showAudit(AuditLog auditLog) {
-        List<AuditEntry> entries = auditLog.getRecentEntries(20);
+        List<AuditEntry> entries = auditLog.getRecentEntries(MAX_AUDIT_DISPLAY_ENTRIES);
         if (entries.isEmpty()) {
             return "  No audit entries recorded.";
         }
 
         String table = entries.stream()
                 .map(e -> String.format("  %s  %-8s  %-25s  %s",
-                        formatTimestamp(e.timestamp()),
+                        extractTime(e.timestamp()),
                         colorize(e.status(), e.status().equals("ALLOWED") ? AttributedStyle.GREEN : AttributedStyle.RED),
                         e.tool(),
-                        formatParams(e.parameters())))
+                        truncateParams(e.parameters())))
                 .collect(Collectors.joining("\n"));
 
         return String.format("""
@@ -213,20 +212,20 @@ public class SecurityCommands {
         return colorize("Audit log cleared.", AttributedStyle.GREEN);
     }
 
-    private String formatTimestamp(String timestamp) {
-        if (timestamp == null || timestamp.length() < 19) return timestamp;
-        return timestamp.substring(11, 19);
+    private String extractTime(String timestamp) {
+        if (timestamp == null || timestamp.length() < TIMESTAMP_TIME_END_INDEX) return timestamp;
+        return timestamp.substring(TIMESTAMP_TIME_START_INDEX, TIMESTAMP_TIME_END_INDEX);
     }
 
-    private String formatParams(Map<String, String> params) {
+    private String truncateParams(Map<String, String> params) {
         if (params == null || params.isEmpty()) return "";
         return params.entrySet().stream()
                 .map(e -> e.getValue())
-                .map(v -> v.length() > 50 ? v.substring(0, 47) + "..." : v)
+                .map(v -> v.length() > MAX_PARAM_DISPLAY_LENGTH
+                        ? v.substring(0, MAX_PARAM_DISPLAY_LENGTH - 3) + "..."
+                        : v)
                 .collect(Collectors.joining(", "));
     }
-
-    // ── Security status (composite) ──────────────────────────────────
 
     @ShellMethod(key = "security", value = "Show the complete security configuration")
     public String security() {
@@ -254,16 +253,11 @@ public class SecurityCommands {
                 auditLog.getEntryCount());
     }
 
-    /**
-     * Reinitializes the agent router after security config changes, clearing
-     * stale chat memory so the agent doesn't carry over previous denial decisions.
-     */
     private void resetAgentMemory() {
         if (agentRouter != null) {
             try {
                 agentRouter.reinitialize();
-            } catch (Exception e) {
-                // Agent may not be fully configured yet (e.g. no API key)
+            } catch (Exception ignored) {
             }
         }
     }

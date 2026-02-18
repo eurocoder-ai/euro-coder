@@ -46,6 +46,8 @@ public class FileSystemTools {
             ".pdf", ".woff", ".woff2", ".ttf", ".eot",
             ".exe", ".dll", ".so", ".dylib", ".DS_Store");
 
+    private static final int DEFAULT_TREE_DEPTH = 4;
+    private static final int MAX_TREE_DEPTH = 8;
     private static final int COMMAND_TIMEOUT_SECONDS = 60;
     private static final int MAX_COMMAND_OUTPUT_LINES = 200;
     private static final int MAX_SEARCH_MATCHES = 100;
@@ -57,14 +59,9 @@ public class FileSystemTools {
         this.securityManager = securityManager;
     }
 
-    /**
-     * No-arg constructor for backward compatibility and testing without security.
-     */
     public FileSystemTools() {
         this.securityManager = null;
     }
-
-    // ── Project exploration tools ────────────────────────────────────
 
     @Tool("Returns a recursive tree view of the project directory structure. " +
           "USE THIS FIRST when starting any task to understand the full project layout. " +
@@ -72,7 +69,7 @@ public class FileSystemTools {
           "Skips build output, .git, node_modules, etc.")
     public String getProjectTree(String directory, int maxDepth) {
         Path dir = resolveDir(directory);
-        int depth = (maxDepth <= 0) ? 4 : Math.min(maxDepth, 8);
+        int depth = (maxDepth <= 0) ? DEFAULT_TREE_DEPTH : Math.min(maxDepth, MAX_TREE_DEPTH);
         StringBuilder sb = new StringBuilder();
         sb.append(dir.toAbsolutePath().normalize()).append("/\n");
         buildTree(dir, sb, "", 0, depth);
@@ -146,8 +143,6 @@ public class FileSystemTools {
         }
     }
 
-    // ── Single-directory listing ─────────────────────────────────────
-
     @Tool("Lists all files and directories in the specified directory, or the current directory if none is given")
     public String listFiles(String directory) {
         Path dir = resolveDir(directory);
@@ -160,8 +155,6 @@ public class FileSystemTools {
             return "Error listing directory: " + e.getMessage();
         }
     }
-
-    // ── File reading ───────────────────────────────────────────────
 
     @Tool("Reads a file and returns its full text content")
     public String readFile(String path) {
@@ -202,8 +195,6 @@ public class FileSystemTools {
             return "Error reading file: " + e.getMessage();
         }
     }
-
-    // ── Content search (grep) ────────────────────────────────────────
 
     @Tool("Searches for a text pattern across all files in a directory recursively. " +
           "Returns matching lines with file paths and line numbers. " +
@@ -246,9 +237,6 @@ public class FileSystemTools {
         }
     }
 
-    /**
-     * Returns a stream of formatted match lines for a single file.
-     */
     private Stream<String> findMatchesInFile(Path baseDir, Path file, String pattern) {
         try {
             List<String> lines = Files.readAllLines(file);
@@ -260,8 +248,6 @@ public class FileSystemTools {
             return Stream.empty();
         }
     }
-
-    // ── File writing (security-checked) ──────────────────────────────
 
     @Tool("Writes the given content to a file, creating it if it does not exist or overwriting if it does")
     public String writeFile(String path, String content) {
@@ -321,8 +307,6 @@ public class FileSystemTools {
         }
     }
 
-    // ── Shell command execution (security-checked) ───────────────────
-
     @Tool("Executes a shell command on the local system and returns its output. " +
           "Use this for any terminal operation: git, docker, npm, curl, grep, ps, etc. " +
           "The command runs in the current working directory with a 60-second timeout.")
@@ -349,8 +333,6 @@ public class FileSystemTools {
         return executeCommand(command, dir);
     }
 
-    // ── Security check helpers ───────────────────────────────────────
-
     private Optional<String> checkFileAccess(String operation, String path) {
         if (securityManager == null) return Optional.empty();
         return securityManager.checkFileAccess(operation, path);
@@ -361,15 +343,10 @@ public class FileSystemTools {
         return securityManager.checkCommandAccess(operation, command, workingDir);
     }
 
-    // ── Internal helpers ─────────────────────────────────────────────
-
     private Path resolveDir(String directory) {
         return (directory == null || directory.isBlank()) ? Paths.get(".") : Paths.get(directory);
     }
 
-    /**
-     * Checks that no path component belongs to a skipped directory, using Stream API.
-     */
     private boolean isNotInSkipDir(Path baseDir, Path file) {
         Path relative = baseDir.relativize(file);
         return IntStream.range(0, relative.getNameCount())
@@ -378,9 +355,6 @@ public class FileSystemTools {
                 .noneMatch(TREE_SKIP_DIRS::contains);
     }
 
-    /**
-     * Heuristic to detect text files (skip binaries, images, archives).
-     */
     private boolean isTextFile(Path path) {
         String name = path.getFileName().toString().toLowerCase();
         int dotIndex = name.lastIndexOf('.');
@@ -391,10 +365,6 @@ public class FileSystemTools {
         return !BINARY_EXTENSIONS.contains(name);
     }
 
-    /**
-     * Executes a shell command with output capture, line-count capping, and timeout.
-     * Uses Stream API for output collection.
-     */
     private String executeCommand(String command, Path workingDirectory) {
         try {
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", command);

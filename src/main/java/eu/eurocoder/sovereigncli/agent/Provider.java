@@ -24,10 +24,6 @@ public enum Provider {
 
     public String displayName() { return displayName; }
 
-    /**
-     * Resolves a provider from its string id (case-insensitive, trimmed).
-     * Returns {@link #MISTRAL} for {@code null}, blank, or unknown values.
-     */
     public static Provider fromId(String id) {
         if (id == null) return MISTRAL;
         for (Provider p : values()) {

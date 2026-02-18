@@ -21,23 +21,14 @@ public record AuditEntry(
         String message
 ) {
 
-    /**
-     * Creates an audit entry timestamped to the current instant.
-     */
     public static AuditEntry now(String tool, Map<String, String> parameters, String status, String message) {
         return new AuditEntry(Instant.now().toString(), tool, parameters, status, message);
     }
 
-    /**
-     * Creates an ALLOWED audit entry timestamped to the current instant.
-     */
     public static AuditEntry allowed(String tool, Map<String, String> parameters) {
         return now(tool, parameters, "ALLOWED", null);
     }
 
-    /**
-     * Creates a DENIED audit entry timestamped to the current instant.
-     */
     public static AuditEntry denied(String tool, Map<String, String> parameters, String reason) {
         return now(tool, parameters, "DENIED", reason);
     }

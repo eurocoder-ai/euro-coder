@@ -24,12 +24,13 @@ AI coding assistants like GitHub Copilot, Cursor, and Claude Code are powerful �
 - **100% offline mode** — Run models locally via [Ollama](https://ollama.com/) with zero network calls
 - **Your machine, your data** — API keys stored locally with restricted file permissions, no telemetry, no tracking
 - **Full agent capabilities** — File I/O, shell command execution, project scaffolding, git operations, Docker management
+- **Security hardened** — Sandboxed execution, permission controls, and full audit logging
 
 ## Features
 
 ### Hybrid Planner/Coder Architecture
 
-EuroCoder uses a two-model strategy for complex tasks. All agents automatically receive a project structure snapshot and have tools to explore, read, search, and modify the codebase — similar to how Claude Code or Cursor operate:
+EuroCoder uses a two-model strategy for complex tasks. All agents automatically receive a project structure snapshot and git context, and have tools to explore, read, search, and modify the codebase — similar to how Claude Code or Cursor operate:
 
 ```
 User Request
@@ -51,10 +52,65 @@ User Request
 └──────────┘                      └───────────┘
 ```
 
-- **Context-aware**: Project structure is auto-injected; all agents explore before acting
+- **Context-aware**: Project structure and git context are auto-injected; all agents explore before acting
 - **Auto mode**: Mistral Large reasons and plans, Codestral writes code
 - **Single-model mode**: Use any one model for everything
 - **Custom pairing**: Mix and match any planner + coder independently
+
+### Security Hardening
+
+EuroCoder includes three security layers to make AI-assisted coding trustworthy for professional use:
+
+```
+Tool Invocation
+     │
+     ▼
+┌──────────────────┐     Path outside project?    ┌─────────┐
+│  Sandbox Check   │ ──── yes ──────────────────► │ BLOCKED │
+│ (directory scope)│                               └─────────┘
+└────────┬─────────┘
+         │ path OK
+         ▼
+┌──────────────────┐     Destructive operation?   ┌─────────────────┐
+│ Permission Check │ ──── yes ──────────────────► │ Prompt User     │
+│ (trust level)    │                               │ Allow? [y/N]    │
+└────────┬─────────┘                               └────────┬────────┘
+         │ allowed                                          │
+         ▼                                                  ▼
+┌──────────────────┐                              ┌─────────────────┐
+│   Audit Log      │ ◄────────────────────────────│ Record Decision │
+│ (JSON-Lines)     │                               └─────────────────┘
+└────────┬─────────┘
+         │
+         ▼
+    Execute Operation
+```
+
+**Sandboxed Execution** — File operations and shell commands are restricted to the project directory. The agent cannot access files outside the sandbox unless explicitly allowed.
+
+**Permission System** — Before destructive operations (file deletion, shell commands), the agent requests explicit user approval. Three configurable trust levels:
+
+| Trust Level | Behavior |
+|---|---|
+| `ask-always` | Prompt before every write and destructive operation |
+| `ask-destructive` | Prompt only before destructive operations (default) |
+| `trust-all` | Never prompt (for automation/scripting) |
+
+**Audit Logging** — Every tool invocation is logged with timestamps, parameters, and outcomes (ALLOWED/DENIED) to `~/.eurocoder/audit.jsonl`. Review exactly what the agent did for compliance and debugging.
+
+**Ctrl+C Handling** — Pressing Ctrl+C during a permission prompt denies the current operation and auto-denies all remaining tool calls for that agent turn (preventing cascading prompts). The next `ask` or `plan` command starts fresh.
+
+**Memory Reset on Config Changes** — Changing the trust level, sandbox root, or allowed paths automatically reinitializes the agent with fresh chat memory. This prevents the agent from carrying over stale denial decisions from a previous security configuration.
+
+### Git-Aware Context
+
+Agents automatically receive git context including:
+- Current branch name
+- Working tree status (modified, added, deleted files)
+- Recent commit history
+- Uncommitted changes summary
+
+This enables the agent to make informed decisions about version control and avoid conflicts.
 
 ### Dual Provider Support
 
@@ -75,12 +131,12 @@ The AI agent can interact with your system through:
 | `listFiles` | List directory contents |
 | `readFile` | Read full file contents |
 | `readFileRange` | Read specific line range from large files (with line numbers) |
-| `writeFile` | Create or overwrite files |
-| `appendToFile` | Append to existing files |
-| `createDirectory` | Create directories |
-| `deleteFile` | Delete files |
-| `runCommand` | Execute any shell command (git, docker, npm, curl, etc.) |
-| `runCommandInDirectory` | Execute shell command in a specific directory |
+| `writeFile` | Create or overwrite files (security-checked) |
+| `appendToFile` | Append to existing files (security-checked) |
+| `createDirectory` | Create directories (security-checked) |
+| `deleteFile` | Delete files (security-checked, requires approval) |
+| `runCommand` | Execute any shell command (security-checked, requires approval) |
+| `runCommandInDirectory` | Execute shell command in a specific directory (security-checked) |
 
 ## Quick Start
 
@@ -99,8 +155,10 @@ cd eurocoder
 ./mvnw clean package -DskipTests
 
 # Run
-java -jar target/sovereign-agent-0.1.0-SNAPSHOT.jar
+java -jar target/sovereign-agent-0.2.0-SNAPSHOT.jar
 ```
+
+> **Note:** Always use `java -jar` to run EuroCoder. Running via `mvn spring-boot:run` causes Ctrl+C to kill the entire process because Maven intercepts the signal before JLine can handle it.
 
 On first launch, an interactive setup will guide you through:
 
@@ -152,6 +210,23 @@ euro-coder:> provider ollama
 | `provider mistral` | Switch to Mistral Cloud API |
 | `provider ollama` | Switch to Ollama (local) |
 
+### Security
+
+| Command | Description |
+|---|---|
+| `security` | Show complete security configuration |
+| `trust` | Show current trust level and options |
+| `trust <level>` | Set trust level (`ask-always`, `ask-destructive`, `trust-all`) |
+| `sandbox` | Show sandbox configuration |
+| `sandbox on` / `sandbox off` | Enable/disable sandbox |
+| `sandbox root <path>` | Set sandbox root directory |
+| `sandbox allow <path>` | Add an additional allowed path |
+| `sandbox reset` | Reset sandbox to defaults |
+| `audit show` | Show recent audit log entries |
+| `audit clear` | Clear audit log |
+| `audit count` | Show number of audit entries |
+| `audit path` | Show audit log file path |
+
 ### Configuration
 
 | Command | Description |
@@ -166,19 +241,51 @@ euro-coder:> provider ollama
 
 ```
 sovereign-cli/
-├── src/main/java/dev/aihelpcenter/sovereigncli/
-│   ├── SovereignCliApplication.java   # Spring Boot entry point
-│   ├── SovereignPromptProvider.java   # Custom shell prompt (euro-coder:>)
-│   ├── FirstRunSetup.java            # Interactive setup wizard
-│   ├── ApiKeyManager.java            # Config persistence (~/.eurocoder/config.json)
-│   ├── ModelManager.java             # Model lifecycle, provider switching, dynamic listing
-│   ├── HybridAgentRouter.java        # Planner/Coder/Direct routing logic
-│   ├── FileSystemTools.java          # Agent tools: file I/O, shell, project exploration, search
-│   └── AgentCommands.java            # Spring Shell command definitions
+├── src/main/java/eu/eurocoder/sovereigncli/
+│   ├── SovereignCliApplication.java        # Spring Boot entry point
+│   ├── agent/
+│   │   ├── HybridAgentRouter.java          # Planner/Coder/Direct routing logic
+│   │   ├── ModelManager.java               # Model lifecycle, provider switching
+│   │   ├── GitContextProvider.java         # Git-aware context for agent prompts
+│   │   ├── Provider.java                   # Provider enum (Mistral/Ollama)
+│   │   ├── ModelOption.java                # Model metadata record
+│   │   └── HybridResult.java              # Agent result record
+│   ├── config/
+│   │   ├── ApiKeyManager.java              # Config persistence (~/.eurocoder/config.json)
+│   │   └── TerminalConfig.java             # SIGINT handler for graceful Ctrl+C
+│   ├── security/
+│   │   ├── ToolSecurityManager.java        # Central security orchestrator
+│   │   ├── PermissionService.java          # User approval prompts
+│   │   ├── AuditLog.java                   # JSON-Lines audit trail
+│   │   ├── AuditEntry.java                 # Audit entry record
+│   │   └── TrustLevel.java                 # Trust level enum
+│   ├── shell/
+│   │   ├── AgentCommands.java              # ask, plan, code, ls commands
+│   │   ├── ConfigCommands.java             # provider, model, config commands
+│   │   ├── SecurityCommands.java           # trust, sandbox, audit, security commands
+│   │   ├── FirstRunSetup.java              # Interactive setup wizard
+│   │   └── SovereignPromptProvider.java    # Custom shell prompt (euro-coder:>)
+│   └── tool/
+│       └── FileSystemTools.java            # Agent tools: file I/O, shell, search
 ├── src/main/resources/
-│   ├── application.properties         # App configuration
-│   └── banner.txt                     # Custom startup banner
-└── pom.xml                            # Maven build (Spring Boot + LangChain4j)
+│   ├── application.properties              # App configuration
+│   └── banner.txt                          # Custom startup banner
+├── src/test/java/eu/eurocoder/sovereigncli/
+│   ├── agent/
+│   │   ├── HybridAgentRouterTest.java      # Routing, context, result tests
+│   │   ├── ModelManagerTest.java           # Model switching, provider tests
+│   │   ├── ProviderTest.java              # Provider enum, ModelOption tests
+│   │   └── GitContextProviderTest.java     # Git context detection tests
+│   ├── config/
+│   │   └── ApiKeyManagerTest.java          # Config persistence tests
+│   ├── security/
+│   │   ├── TrustLevelTest.java            # Trust level enum tests
+│   │   ├── AuditLogTest.java              # Audit read/write/clear tests
+│   │   ├── PermissionServiceTest.java     # Permission logic tests
+│   │   └── ToolSecurityManagerTest.java   # Sandbox + permission integration tests
+│   └── tool/
+│       └── FileSystemToolsTest.java        # File I/O, shell, search tests
+└── pom.xml                                 # Maven build (Spring Boot + LangChain4j)
 ```
 
 ## Configuration
@@ -192,7 +299,9 @@ All configuration is stored in `~/.eurocoder/config.json` with owner-only file p
   "model_mode": "auto",
   "custom_planner_model": "",
   "custom_coder_model": "",
-  "ollama_base_url": "http://localhost:11434"
+  "ollama_base_url": "http://localhost:11434",
+  "trust_level": "ask-destructive",
+  "sandbox_enabled": "true"
 }
 ```
 
@@ -241,6 +350,36 @@ EuroCoder is a working prototype. Planned future development includes:
 - **Native packaging** — Homebrew formula, GraalVM native binary, Docker image
 - **Streaming responses** — Real-time token streaming for better UX
 - **Conversation persistence** — Save and resume coding sessions
+- **Benchmarking framework** — Automated model evaluation on coding tasks
+
+## Changelog
+
+### 0.2.0-SNAPSHOT (2026-02-18)
+
+**Security Fixes**
+- Fixed permission prompts not appearing inside Spring Shell (JLine Terminal integration replaces `System.console()`)
+- Fixed agent retaining stale denial decisions after security config changes (memory reset on trust/sandbox changes)
+- Fixed Ctrl+C during a permission prompt causing cascading prompts and JVM crash (interrupt flag auto-denies remaining ops)
+- Added SIGINT handler for graceful Ctrl+C at idle shell prompt
+
+**Breaking Changes**
+- Package renamed from `dev.aihelpcenter.sovereigncli` to `eu.eurocoder.sovereigncli`
+- Maven groupId changed from `com.sovereign` to `eu.eurocoder`
+
+**Improvements**
+- Agent system prompts now instruct models to always retry tool calls after denial (prevents silent refusals from chat memory)
+- Security config changes (`trust`, `sandbox`) automatically reinitialize agents with fresh chat memory
+
+### 0.1.0-SNAPSHOT (2026-02-17)
+
+**Initial Release**
+- Hybrid Planner/Coder architecture with auto-routing
+- Dual provider support: Mistral Cloud API and Ollama (local)
+- File system tools: read, write, search, delete, shell commands
+- Security hardening: sandbox, permission system, audit logging
+- Git-aware context injection (branch, status, commits)
+- Interactive first-run setup wizard
+- Custom model pairing (planner + coder independently configurable)
 
 ## Contributing
 

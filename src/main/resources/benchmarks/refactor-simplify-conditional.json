@@ -1,0 +1,16 @@
+{
+  "id": "refactor-simplify-conditional",
+  "category": "refactoring",
+  "description": "Simplify a complex nested conditional",
+  "type": "agent",
+  "prompt": "Read Validator.java. The isValid method has deeply nested if-statements. Refactor it to use early returns (guard clauses) to reduce nesting. Write the refactored file.",
+  "setup": {
+    "Validator.java": "public class Validator {\n\n    public boolean isValid(String input) {\n        if (input != null) {\n            if (!input.isEmpty()) {\n                if (input.length() >= 3) {\n                    if (input.length() <= 100) {\n                        if (input.matches(\"[a-zA-Z0-9]+\")) {\n                            return true;\n                        }\n                    }\n                }\n            }\n        }\n        return false;\n    }\n}\n"
+  },
+  "assertions": [
+    {"type": "file_exists", "path": "Validator.java"},
+    {"type": "file_contains", "path": "Validator.java", "value": "return false"},
+    {"type": "file_contains", "path": "Validator.java", "value": "isValid"}
+  ],
+  "timeoutSeconds": 120
+}

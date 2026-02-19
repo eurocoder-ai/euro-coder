@@ -1,0 +1,15 @@
+{
+  "id": "gen-rest-endpoint",
+  "category": "code-generation",
+  "description": "Generate a Spring REST controller",
+  "type": "raw",
+  "prompt": "Write a complete Spring Boot REST controller class 'UserController' with: 1) A GET endpoint '/api/users' that returns a list of users, 2) A GET endpoint '/api/users/{id}' that returns a single user by ID, 3) A POST endpoint '/api/users' that creates a new user. Use @RestController annotation. Include a simple User record with 'id', 'name', and 'email' fields.",
+  "setup": {},
+  "assertions": [
+    {"type": "response_contains", "value": "@RestController"},
+    {"type": "response_contains", "value": "@GetMapping"},
+    {"type": "response_contains", "value": "@PostMapping"},
+    {"type": "response_contains", "value": "UserController"}
+  ],
+  "timeoutSeconds": 60
+}

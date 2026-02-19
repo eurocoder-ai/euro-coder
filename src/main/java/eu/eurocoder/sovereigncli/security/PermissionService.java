@@ -39,7 +39,7 @@ public class PermissionService {
         log.info("PermissionService initialized — trust level: {}", trustLevel.id());
     }
 
-    PermissionService(TrustLevel trustLevel) {
+    public PermissionService(TrustLevel trustLevel) {
         this.apiKeyManager = null;
         this.trustLevel = trustLevel;
     }

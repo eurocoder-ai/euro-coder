@@ -1,0 +1,16 @@
+{
+  "id": "debug-fix-off-by-one",
+  "category": "debugging",
+  "description": "Fix an off-by-one error in array processing",
+  "type": "agent",
+  "prompt": "Read ArrayUtils.java. The findMax method has an off-by-one error — it starts iterating from index 0 instead of 1, causing it to always compare the first element with itself. Also, the sumRange method uses '<=' for the end index which causes ArrayIndexOutOfBoundsException when end equals the array length. Fix both bugs. Write the fixed file.",
+  "setup": {
+    "ArrayUtils.java": "public class ArrayUtils {\n\n    public static int findMax(int[] arr) {\n        if (arr == null || arr.length == 0) {\n            throw new IllegalArgumentException(\"Array must not be empty\");\n        }\n        int max = arr[0];\n        for (int i = 0; i <= arr.length; i++) {\n            if (arr[i] > max) {\n                max = arr[i];\n            }\n        }\n        return max;\n    }\n\n    public static int sumRange(int[] arr, int start, int end) {\n        int sum = 0;\n        for (int i = start; i <= end; i++) {\n            sum += arr[i];\n        }\n        return sum;\n    }\n}\n"
+  },
+  "assertions": [
+    {"type": "file_exists", "path": "ArrayUtils.java"},
+    {"type": "file_not_contains", "path": "ArrayUtils.java", "value": "i <= arr.length"},
+    {"type": "file_contains", "path": "ArrayUtils.java", "value": "i < arr.length"}
+  ],
+  "timeoutSeconds": 120
+}

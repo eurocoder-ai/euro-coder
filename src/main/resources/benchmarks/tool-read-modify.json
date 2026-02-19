@@ -1,0 +1,17 @@
+{
+  "id": "tool-read-modify",
+  "category": "tool-calling",
+  "description": "Read a file, modify it, and write it back",
+  "type": "agent",
+  "prompt": "Read Config.java. Add a new field 'private int maxConnections = 10;' with a getter method 'getMaxConnections()'. Write the updated file.",
+  "setup": {
+    "Config.java": "public class Config {\n\n    private String host = \"localhost\";\n    private int port = 8080;\n\n    public String getHost() {\n        return host;\n    }\n\n    public int getPort() {\n        return port;\n    }\n}\n"
+  },
+  "assertions": [
+    {"type": "file_exists", "path": "Config.java"},
+    {"type": "file_contains", "path": "Config.java", "value": "maxConnections"},
+    {"type": "file_contains", "path": "Config.java", "value": "getMaxConnections"},
+    {"type": "file_contains", "path": "Config.java", "value": "getHost"}
+  ],
+  "timeoutSeconds": 120
+}

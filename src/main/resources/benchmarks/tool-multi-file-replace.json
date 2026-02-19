@@ -1,0 +1,21 @@
+{
+  "id": "tool-multi-file-replace",
+  "category": "tool-calling",
+  "description": "Search and replace across multiple files",
+  "type": "agent",
+  "prompt": "There are three files in this directory. The deprecated method 'getLogger()' needs to be replaced with 'createLogger()' in all files. Read each file, replace all occurrences of 'getLogger' with 'createLogger', and write the updated files.",
+  "setup": {
+    "ServiceA.java": "public class ServiceA {\n    private static final Logger log = LogFactory.getLogger(ServiceA.class);\n\n    public void process() {\n        log.info(\"Processing in ServiceA\");\n    }\n}\n",
+    "ServiceB.java": "public class ServiceB {\n    private static final Logger log = LogFactory.getLogger(ServiceB.class);\n\n    public void handle() {\n        log.info(\"Handling in ServiceB\");\n    }\n}\n",
+    "ServiceC.java": "public class ServiceC {\n    private static final Logger log = LogFactory.getLogger(ServiceC.class);\n\n    public void execute() {\n        log.info(\"Executing in ServiceC\");\n    }\n}\n"
+  },
+  "assertions": [
+    {"type": "file_contains", "path": "ServiceA.java", "value": "createLogger"},
+    {"type": "file_not_contains", "path": "ServiceA.java", "value": "getLogger"},
+    {"type": "file_contains", "path": "ServiceB.java", "value": "createLogger"},
+    {"type": "file_not_contains", "path": "ServiceB.java", "value": "getLogger"},
+    {"type": "file_contains", "path": "ServiceC.java", "value": "createLogger"},
+    {"type": "file_not_contains", "path": "ServiceC.java", "value": "getLogger"}
+  ],
+  "timeoutSeconds": 120
+}

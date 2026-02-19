@@ -1,0 +1,16 @@
+{
+  "id": "debug-fix-null-check",
+  "category": "debugging",
+  "description": "Add missing null checks to prevent crashes",
+  "type": "agent",
+  "prompt": "Read UserService.java. The getFullName and getEmailDomain methods don't check for null fields, which can cause NullPointerException. Add proper null handling: getFullName should return 'Unknown' if either firstName or lastName is null, and getEmailDomain should return an empty string if email is null or doesn't contain '@'. Write the fixed file.",
+  "setup": {
+    "UserService.java": "public class UserService {\n\n    private String firstName;\n    private String lastName;\n    private String email;\n\n    public UserService(String firstName, String lastName, String email) {\n        this.firstName = firstName;\n        this.lastName = lastName;\n        this.email = email;\n    }\n\n    public String getFullName() {\n        return firstName + \" \" + lastName;\n    }\n\n    public String getEmailDomain() {\n        return email.substring(email.indexOf('@') + 1);\n    }\n}\n"
+  },
+  "assertions": [
+    {"type": "file_exists", "path": "UserService.java"},
+    {"type": "file_contains", "path": "UserService.java", "value": "null"},
+    {"type": "file_contains", "path": "UserService.java", "value": "Unknown"}
+  ],
+  "timeoutSeconds": 120
+}

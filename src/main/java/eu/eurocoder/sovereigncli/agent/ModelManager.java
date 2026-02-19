@@ -387,6 +387,14 @@ public class ModelManager {
         return modelId != null && !modelId.isBlank();
     }
 
+    /**
+     * Builds a standalone ChatModel for benchmarking without affecting the active planner/coder.
+     * Uses a fixed temperature of 0.0 for reproducibility.
+     */
+    public ChatModel buildBenchmarkModel(String modelName) {
+        return buildModel(modelName, 0.0);
+    }
+
     private ChatModel buildModel(String modelName, double temperature) {
         if (isOllama()) {
             return buildOllamaModel(modelName, temperature);

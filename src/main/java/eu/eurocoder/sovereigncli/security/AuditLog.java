@@ -34,7 +34,7 @@ public class AuditLog {
         this(apiKeyManager.getConfigDir().resolve(AUDIT_FILENAME));
     }
 
-    AuditLog(Path auditFile) {
+    public AuditLog(Path auditFile) {
         this.auditFile = auditFile;
         this.objectMapper = new ObjectMapper();
     }

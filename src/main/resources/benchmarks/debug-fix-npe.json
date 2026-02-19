@@ -1,0 +1,15 @@
+{
+  "id": "debug-fix-npe",
+  "category": "debugging",
+  "description": "Read a file and fix a NullPointerException",
+  "type": "agent",
+  "prompt": "Read Calculator.java and fix the NullPointerException bug. The 'name' field can be null and calling name.length() will throw NPE. Add a null check. Write the fixed file.",
+  "setup": {
+    "Calculator.java": "public class Calculator {\n    private String name;\n\n    public Calculator(String name) {\n        this.name = name;\n    }\n\n    public int nameLength() {\n        return name.length();\n    }\n\n    public String getDisplayName() {\n        return \"Calculator: \" + name.toUpperCase();\n    }\n}\n"
+  },
+  "assertions": [
+    {"type": "file_exists", "path": "Calculator.java"},
+    {"type": "file_contains", "path": "Calculator.java", "value": "null"}
+  ],
+  "timeoutSeconds": 120
+}

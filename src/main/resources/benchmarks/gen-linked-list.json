@@ -1,0 +1,14 @@
+{
+  "id": "gen-linked-list",
+  "category": "code-generation",
+  "description": "Generate a linked list reversal in Java",
+  "type": "raw",
+  "prompt": "Write a complete Java class 'LinkedListReverser' that contains: 1) A static inner class 'Node' with an int 'value' and a 'Node next' field, 2) A method 'reverse(Node head)' that reverses a singly linked list in-place and returns the new head.",
+  "setup": {},
+  "assertions": [
+    {"type": "response_contains", "value": "reverse"},
+    {"type": "response_contains", "value": "Node"},
+    {"type": "response_contains", "value": "next"}
+  ],
+  "timeoutSeconds": 60
+}

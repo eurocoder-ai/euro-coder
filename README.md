@@ -112,6 +112,36 @@ Agents automatically receive git context including:
 
 This enables the agent to make informed decisions about version control and avoid conflicts.
 
+### Benchmarking Framework
+
+Automated evaluation of AI model performance on coding tasks. Compare models, track quality over time, and publish reproducible results.
+
+```
+euro-coder:> benchmark list
+
+  Available Benchmark Tasks
+  ============================================================
+
+  CODE-GENERATION
+    gen-fibonacci             [raw]    Generate a Fibonacci function in Java
+    gen-fizzbuzz              [raw]    Generate a FizzBuzz implementation in Java
+    gen-linked-list           [raw]    Generate a linked list reversal in Java
+    gen-rest-endpoint         [raw]    Generate a Spring REST controller
+
+  DEBUGGING
+    debug-fix-npe             [agent]  Read a file and fix a NullPointerException
+    ...
+
+  Total: 12 tasks
+```
+
+- **Two benchmark modes**: *Raw* (prompt-to-response, tracks tokens) and *Agent* (full tool-calling pipeline with isolated sandbox)
+- **Assertion types**: `response_contains`, `file_exists`, `file_contains`, `file_not_contains`, `compiles`
+- **Isolated execution**: Each task runs in a fresh temp directory with a trust-all sandbox
+- **Result persistence**: JSON results saved to `~/.eurocoder/benchmark-results/` for comparison and dataset publication
+- **12 starter tasks** across 4 categories: code generation, refactoring, debugging, tool calling
+- **Extensible**: Add new tasks by dropping JSON files into `src/main/resources/benchmarks/`
+
 ### Dual Provider Support
 
 | Provider | How it works | API Key? | Best for |
@@ -155,7 +185,7 @@ cd eurocoder
 ./mvnw clean package -DskipTests
 
 # Run
-java -jar target/sovereign-agent-0.2.0-SNAPSHOT.jar
+java -jar target/sovereign-agent-0.3.0-SNAPSHOT.jar
 ```
 
 > **Note:** Always use `java -jar` to run EuroCoder. Running via `mvn spring-boot:run` causes Ctrl+C to kill the entire process because Maven intercepts the signal before JLine can handle it.
@@ -227,6 +257,18 @@ euro-coder:> provider ollama
 | `audit count` | Show number of audit entries |
 | `audit path` | Show audit log file path |
 
+### Benchmarking
+
+| Command | Description |
+|---|---|
+| `benchmark list` | Show all available benchmark tasks grouped by category |
+| `benchmark run` | Run all benchmark tasks against the current model |
+| `benchmark run --category <cat>` | Run tasks from a specific category (e.g. `code-generation`) |
+| `benchmark run --task <id>` | Run a single task by ID (e.g. `gen-fibonacci`) |
+| `benchmark run --model <name>` | Run against a specific model instead of the default |
+| `benchmark report` | Show the latest benchmark run results |
+| `benchmark compare` | Compare results across all saved benchmark runs |
+
 ### Configuration
 
 | Command | Description |
@@ -250,6 +292,14 @@ sovereign-cli/
 │   │   ├── Provider.java                   # Provider enum (Mistral/Ollama)
 │   │   ├── ModelOption.java                # Model metadata record
 │   │   └── HybridResult.java              # Agent result record
+│   ├── benchmark/
+│   │   ├── BenchmarkTask.java              # Task definition record (loaded from JSON)
+│   │   ├── BenchmarkAssertion.java         # Assertion definition record
+│   │   ├── BenchmarkResult.java            # Execution result record
+│   │   ├── TaskLoader.java                 # Loads tasks from classpath JSON files
+│   │   ├── BenchmarkEvaluator.java         # Assertion checking engine
+│   │   ├── BenchmarkRunner.java            # Orchestrates raw + agent mode execution
+│   │   └── BenchmarkReport.java            # Console tables + JSON persistence
 │   ├── config/
 │   │   ├── ApiKeyManager.java              # Config persistence (~/.eurocoder/config.json)
 │   │   └── TerminalConfig.java             # SIGINT handler for graceful Ctrl+C
@@ -263,19 +313,30 @@ sovereign-cli/
 │   │   ├── AgentCommands.java              # ask, plan, code, ls commands
 │   │   ├── ConfigCommands.java             # provider, model, config commands
 │   │   ├── SecurityCommands.java           # trust, sandbox, audit, security commands
+│   │   ├── BenchmarkCommands.java          # benchmark list/run/report/compare
 │   │   ├── FirstRunSetup.java              # Interactive setup wizard
 │   │   └── SovereignPromptProvider.java    # Custom shell prompt (euro-coder:>)
 │   └── tool/
 │       └── FileSystemTools.java            # Agent tools: file I/O, shell, search
 ├── src/main/resources/
 │   ├── application.properties              # App configuration
-│   └── banner.txt                          # Custom startup banner
+│   ├── banner.txt                          # Custom startup banner
+│   └── benchmarks/                         # Benchmark task definitions (12 JSON files)
+│       ├── gen-fibonacci.json              # Code generation tasks
+│       ├── debug-fix-npe.json              # Debugging tasks
+│       ├── refactor-extract-method.json    # Refactoring tasks
+│       └── tool-read-modify.json           # Tool-calling tasks (+ 8 more)
 ├── src/test/java/eu/eurocoder/sovereigncli/
 │   ├── agent/
 │   │   ├── HybridAgentRouterTest.java      # Routing, context, result tests
 │   │   ├── ModelManagerTest.java           # Model switching, provider tests
 │   │   ├── ProviderTest.java              # Provider enum, ModelOption tests
 │   │   └── GitContextProviderTest.java     # Git context detection tests
+│   ├── benchmark/
+│   │   ├── BenchmarkEvaluatorTest.java     # Assertion checking tests (17 tests)
+│   │   ├── TaskLoaderTest.java             # JSON task loading tests (11 tests)
+│   │   ├── BenchmarkReportTest.java        # Report formatting + persistence (8 tests)
+│   │   └── BenchmarkResultTest.java        # Result record factory tests (3 tests)
 │   ├── config/
 │   │   └── ApiKeyManagerTest.java          # Config persistence tests
 │   ├── security/
@@ -350,9 +411,20 @@ EuroCoder is a working prototype. Planned future development includes:
 - **Native packaging** — Homebrew formula, GraalVM native binary, Docker image
 - **Streaming responses** — Real-time token streaming for better UX
 - **Conversation persistence** — Save and resume coding sessions
-- **Benchmarking framework** — Automated model evaluation on coding tasks
+- ~~**Benchmarking framework** — Automated model evaluation on coding tasks~~ ✓ Done (v0.3.0)
 
 ## Changelog
+
+### 0.3.0-SNAPSHOT (2026-02-19)
+
+**New Features**
+- Benchmarking framework for automated AI model evaluation on coding tasks
+  - Two modes: raw (prompt-to-response with token tracking) and agent (full tool-calling pipeline)
+  - 5 assertion types: `response_contains`, `file_exists`, `file_contains`, `file_not_contains`, `compiles`
+  - 12 starter tasks across 4 categories: code generation, refactoring, debugging, tool calling
+  - Shell commands: `benchmark list`, `benchmark run`, `benchmark report`, `benchmark compare`
+  - Isolated execution in temp directories with trust-all sandbox
+  - JSON result persistence for cross-model comparison
 
 ### 0.2.0-SNAPSHOT (2026-02-18)
 

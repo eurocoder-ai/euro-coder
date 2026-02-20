@@ -53,14 +53,27 @@ public class FileSystemTools {
     private static final int MAX_SEARCH_MATCHES = 100;
 
     private final ToolSecurityManager securityManager;
+    private final Path workingDirectory;
 
     @Autowired
     public FileSystemTools(ToolSecurityManager securityManager) {
         this.securityManager = securityManager;
+        this.workingDirectory = null;
     }
 
     public FileSystemTools() {
         this.securityManager = null;
+        this.workingDirectory = null;
+    }
+
+    /**
+     * Creates a FileSystemTools instance that resolves all relative paths against
+     * the given working directory instead of the JVM's current directory.
+     * Used for benchmark sandboxes.
+     */
+    public FileSystemTools(ToolSecurityManager securityManager, Path workingDirectory) {
+        this.securityManager = securityManager;
+        this.workingDirectory = workingDirectory.toAbsolutePath().normalize();
     }
 
     @Tool("Returns a recursive tree view of the project directory structure. " +
@@ -159,7 +172,7 @@ public class FileSystemTools {
     @Tool("Reads a file and returns its full text content")
     public String readFile(String path) {
         try {
-            return Files.readString(Paths.get(path));
+            return Files.readString(resolvePath(path));
         } catch (IOException e) {
             return "Error reading file: " + e.getMessage();
         }
@@ -171,7 +184,7 @@ public class FileSystemTools {
           "If endLine is 0 or beyond the file, reads to the end.")
     public String readFileRange(String path, int startLine, int endLine) {
         try {
-            List<String> allLines = Files.readAllLines(Paths.get(path));
+            List<String> allLines = Files.readAllLines(resolvePath(path));
             int total = allLines.size();
 
             if (total == 0) {
@@ -255,7 +268,7 @@ public class FileSystemTools {
         if (denied.isPresent()) return denied.get();
 
         try {
-            Path filePath = Paths.get(path);
+            Path filePath = resolvePath(path);
             if (filePath.getParent() != null) {
                 Files.createDirectories(filePath.getParent());
             }
@@ -272,7 +285,7 @@ public class FileSystemTools {
         if (denied.isPresent()) return denied.get();
 
         try {
-            Path filePath = Paths.get(path);
+            Path filePath = resolvePath(path);
             Files.writeString(filePath, content,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             return "Successfully appended " + content.length() + " characters to " + path;
@@ -287,7 +300,7 @@ public class FileSystemTools {
         if (denied.isPresent()) return denied.get();
 
         try {
-            Files.createDirectories(Paths.get(path));
+            Files.createDirectories(resolvePath(path));
             return "Successfully created directory: " + path;
         } catch (IOException e) {
             return "Error creating directory: " + e.getMessage();
@@ -300,7 +313,7 @@ public class FileSystemTools {
         if (denied.isPresent()) return denied.get();
 
         try {
-            boolean deleted = Files.deleteIfExists(Paths.get(path));
+            boolean deleted = Files.deleteIfExists(resolvePath(path));
             return deleted ? "Successfully deleted: " + path : "File not found: " + path;
         } catch (IOException e) {
             return "Error deleting file: " + e.getMessage();
@@ -311,25 +324,25 @@ public class FileSystemTools {
           "Use this for any terminal operation: git, docker, npm, curl, grep, ps, etc. " +
           "The command runs in the current working directory with a 60-second timeout.")
     public String runCommand(String command) {
-        Optional<String> denied = checkCommandAccess("runCommand", command, null);
+        Optional<String> denied = checkCommandAccess("runCommand", command, workingDirectory);
         if (denied.isPresent()) return denied.get();
 
         log.info("Executing command: {}", command);
-        return executeCommand(command, null);
+        return executeCommand(command, workingDirectory);
     }
 
     @Tool("Executes a shell command in a specific directory and returns its output. " +
           "Use this when you need to run a command in a particular location.")
-    public String runCommandInDirectory(String command, String workingDirectory) {
-        Path dir = Paths.get(workingDirectory);
+    public String runCommandInDirectory(String command, String directory) {
+        Path dir = resolvePath(directory);
         if (!Files.isDirectory(dir)) {
-            return "Error: '" + workingDirectory + "' is not a valid directory";
+            return "Error: '" + directory + "' is not a valid directory";
         }
 
         Optional<String> denied = checkCommandAccess("runCommandInDirectory", command, dir);
         if (denied.isPresent()) return denied.get();
 
-        log.info("Executing command in {}: {}", workingDirectory, command);
+        log.info("Executing command in {}: {}", directory, command);
         return executeCommand(command, dir);
     }
 
@@ -344,7 +357,22 @@ public class FileSystemTools {
     }
 
     private Path resolveDir(String directory) {
-        return (directory == null || directory.isBlank()) ? Paths.get(".") : Paths.get(directory);
+        if (directory == null || directory.isBlank() || directory.equals(".")) {
+            return workingDirectory != null ? workingDirectory : Paths.get(".");
+        }
+        Path path = Paths.get(directory);
+        if (path.isAbsolute()) {
+            return path;
+        }
+        return workingDirectory != null ? workingDirectory.resolve(path) : path;
+    }
+
+    private Path resolvePath(String path) {
+        Path p = Paths.get(path);
+        if (p.isAbsolute()) {
+            return p;
+        }
+        return workingDirectory != null ? workingDirectory.resolve(p) : p;
     }
 
     private boolean isNotInSkipDir(Path baseDir, Path file) {

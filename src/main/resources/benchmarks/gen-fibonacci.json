@@ -1,0 +1,14 @@
+{
+  "id": "gen-fibonacci",
+  "category": "code-generation",
+  "description": "Generate a Fibonacci function in Java",
+  "type": "raw",
+  "prompt": "Write a Java method 'fibonacci(int n)' that returns the nth Fibonacci number using an iterative approach. Include the complete class definition with the class name 'Fibonacci'.",
+  "setup": {},
+  "assertions": [
+    {"type": "response_contains", "value": "fibonacci"},
+    {"type": "response_contains", "value": "return"},
+    {"type": "response_contains", "value": "class Fibonacci"}
+  ],
+  "timeoutSeconds": 60
+}

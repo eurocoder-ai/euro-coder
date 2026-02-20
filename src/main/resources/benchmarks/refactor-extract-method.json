@@ -1,0 +1,16 @@
+{
+  "id": "refactor-extract-method",
+  "category": "refactoring",
+  "description": "Extract a repeated code block into a method",
+  "type": "agent",
+  "prompt": "Read OrderProcessor.java. The method processOrder() has duplicated discount calculation logic. Extract the duplicated code into a new private method called 'calculateDiscount' and update both call sites. Write the refactored file.",
+  "setup": {
+    "OrderProcessor.java": "public class OrderProcessor {\n\n    public double processOrder(double price, String customerType) {\n        double finalPrice;\n        if (customerType.equals(\"premium\")) {\n            double discount = price * 0.15;\n            if (discount > 50) discount = 50;\n            finalPrice = price - discount;\n        } else if (customerType.equals(\"vip\")) {\n            double discount = price * 0.15;\n            if (discount > 50) discount = 50;\n            finalPrice = price - discount - 10;\n        } else {\n            finalPrice = price;\n        }\n        return finalPrice;\n    }\n}\n"
+  },
+  "assertions": [
+    {"type": "file_exists", "path": "OrderProcessor.java"},
+    {"type": "file_contains", "path": "OrderProcessor.java", "value": "calculateDiscount"},
+    {"type": "file_not_contains", "path": "OrderProcessor.java", "value": "price * 0.15;\n            if (discount > 50) discount = 50;\n            finalPrice = price - discount;\n        } else if"}
+  ],
+  "timeoutSeconds": 120
+}

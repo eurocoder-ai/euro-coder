@@ -55,8 +55,8 @@ public class ToolSecurityManager {
         log.info("Security manager initialized — sandbox root: {}", sandboxRoot);
     }
 
-    ToolSecurityManager(AuditLog auditLog, PermissionService permissionService,
-                        boolean sandboxEnabled, Path sandboxRoot) {
+    public ToolSecurityManager(AuditLog auditLog, PermissionService permissionService,
+                               boolean sandboxEnabled, Path sandboxRoot) {
         this.auditLog = auditLog;
         this.permissionService = permissionService;
         this.sandboxEnabled = sandboxEnabled;

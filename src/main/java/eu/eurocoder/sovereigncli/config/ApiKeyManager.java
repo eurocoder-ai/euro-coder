@@ -162,6 +162,18 @@ public class ApiKeyManager {
         log.info("Custom model overrides cleared");
     }
 
+    // ── Beta feature flag ───────────────────────────────────────────────
+
+    public boolean isBetaEnabled() {
+        String value = readConfigField("beta_enabled");
+        return "true".equalsIgnoreCase(value);
+    }
+
+    public void saveBetaEnabled(boolean enabled) throws IOException {
+        writeConfigField("beta_enabled", String.valueOf(enabled));
+        log.info("Beta features {}", enabled ? "enabled" : "disabled");
+    }
+
     public Path getConfigFilePath() {
         return getConfigDir().resolve("config.json");
     }

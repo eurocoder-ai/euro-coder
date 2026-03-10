@@ -4,6 +4,7 @@ import eu.eurocoder.sovereigncli.tool.FileSystemTools;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +52,7 @@ public class HybridAgentRouter {
     private PlannerAgent planner;
     private CoderAgent coder;
     private DirectAgent directAgent;
+    private StreamingDirectAgent streamingDirectAgent;
     private boolean initialized = false;
 
     interface PlannerAgent {
@@ -116,43 +118,50 @@ public class HybridAgentRouter {
         String execute(@UserMessage String planAndContext);
     }
 
+    static final String DIRECT_AGENT_SYSTEM_PROMPT = """
+            You are a Sovereign AI Developer Agent running entirely on local/sovereign infrastructure.
+            You have full access to the local file system AND the ability to execute any shell command
+            through your tools (getProjectTree, findFiles, searchContent, listFiles,
+            readFile, readFileRange, writeFile, appendToFile, createDirectory, deleteFile,
+            runCommand, runCommandInDirectory).
+            
+            CRITICAL WORKFLOW — always follow this order:
+            1. EXPLORE FIRST: Before doing ANYTHING, use getProjectTree to understand the
+               project structure. Use findFiles to locate relevant files (e.g., '*.java',
+               '*.py', '*.ts'). Use searchContent to find usages and references.
+            2. READ RELEVANT FILES: Read ALL files related to the user's request.
+               Use readFileRange for large files when you only need specific sections.
+               - For "add tests": read EVERY source class, existing tests, and build config.
+               - For "fix a bug": read the buggy file AND all files that interact with it.
+               - For "refactor X": use searchContent('X') to find every file referencing it.
+               - For "create feature": read existing code to understand patterns and conventions.
+               - The MORE context you gather, the BETTER your output will be.
+            3. UNDERSTAND: Identify the project's language, framework, patterns, dependencies,
+               and coding conventions before writing any code.
+            4. ACT: Create, modify, or delete files as needed. Write production-quality code.
+            5. VERIFY: Run builds/tests with runCommand to confirm your changes work
+               (e.g., 'mvn test', 'npm run build', 'python -m pytest').
+            6. SUMMARIZE: Provide a clear summary of what you did.
+            
+            Rules:
+            - NEVER create or modify files without first reading the relevant source files.
+            - NEVER write a single test without reading every class that needs testing.
+            - ALWAYS match the existing code style and conventions.
+            - If a task is ambiguous, explore the project first, then ask for clarification.
+            - ALWAYS invoke the appropriate tool when the user asks to create, modify, delete,
+              or run something — even if a similar operation was previously denied or failed.
+              The user may have changed their mind or updated security settings. Never skip a
+              tool call based on a previous outcome.
+            """;
+
     interface DirectAgent {
-        @SystemMessage("""
-                You are a Sovereign AI Developer Agent running entirely on local/sovereign infrastructure.
-                You have full access to the local file system AND the ability to execute any shell command
-                through your tools (getProjectTree, findFiles, searchContent, listFiles,
-                readFile, readFileRange, writeFile, appendToFile, createDirectory, deleteFile,
-                runCommand, runCommandInDirectory).
-                
-                CRITICAL WORKFLOW — always follow this order:
-                1. EXPLORE FIRST: Before doing ANYTHING, use getProjectTree to understand the
-                   project structure. Use findFiles to locate relevant files (e.g., '*.java',
-                   '*.py', '*.ts'). Use searchContent to find usages and references.
-                2. READ RELEVANT FILES: Read ALL files related to the user's request.
-                   Use readFileRange for large files when you only need specific sections.
-                   - For "add tests": read EVERY source class, existing tests, and build config.
-                   - For "fix a bug": read the buggy file AND all files that interact with it.
-                   - For "refactor X": use searchContent('X') to find every file referencing it.
-                   - For "create feature": read existing code to understand patterns and conventions.
-                   - The MORE context you gather, the BETTER your output will be.
-                3. UNDERSTAND: Identify the project's language, framework, patterns, dependencies,
-                   and coding conventions before writing any code.
-                4. ACT: Create, modify, or delete files as needed. Write production-quality code.
-                5. VERIFY: Run builds/tests with runCommand to confirm your changes work
-                   (e.g., 'mvn test', 'npm run build', 'python -m pytest').
-                6. SUMMARIZE: Provide a clear summary of what you did.
-                
-                Rules:
-                - NEVER create or modify files without first reading the relevant source files.
-                - NEVER write a single test without reading every class that needs testing.
-                - ALWAYS match the existing code style and conventions.
-                - If a task is ambiguous, explore the project first, then ask for clarification.
-                - ALWAYS invoke the appropriate tool when the user asks to create, modify, delete,
-                  or run something — even if a similar operation was previously denied or failed.
-                  The user may have changed their mind or updated security settings. Never skip a
-                  tool call based on a previous outcome.
-                """)
+        @SystemMessage(DIRECT_AGENT_SYSTEM_PROMPT)
         String chat(@UserMessage String userMessage);
+    }
+
+    interface StreamingDirectAgent {
+        @SystemMessage(DIRECT_AGENT_SYSTEM_PROMPT)
+        TokenStream chat(@UserMessage String userMessage);
     }
 
     public HybridAgentRouter(ModelManager modelManager, FileSystemTools fileSystemTools,
@@ -173,6 +182,7 @@ public class HybridAgentRouter {
         this.planner = null;
         this.coder = null;
         this.directAgent = null;
+        this.streamingDirectAgent = null;
         buildAgents();
     }
 
@@ -193,6 +203,12 @@ public class HybridAgentRouter {
 
         this.directAgent = AiServices.builder(DirectAgent.class)
                 .chatModel(modelManager.getCoderModel())
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(CHAT_MEMORY_WINDOW_SIZE))
+                .tools(fileSystemTools)
+                .build();
+
+        this.streamingDirectAgent = AiServices.builder(StreamingDirectAgent.class)
+                .streamingChatModel(modelManager.getStreamingCoderModel())
                 .chatMemory(MessageWindowChatMemory.withMaxMessages(CHAT_MEMORY_WINDOW_SIZE))
                 .tools(fileSystemTools)
                 .build();
@@ -258,11 +274,20 @@ public class HybridAgentRouter {
     public String chatDirect(String userMessage) {
         ensureInitialized();
         log.info("DIRECT mode — {} handling request...", modelManager.getCoderModelName());
+        return directAgent.chat(enrichDirectMessage(userMessage));
+    }
 
+    public TokenStream chatDirectStreaming(String userMessage) {
+        ensureInitialized();
+        log.info("STREAMING DIRECT mode — {} handling request...", modelManager.getCoderModelName());
+        return streamingDirectAgent.chat(enrichDirectMessage(userMessage));
+    }
+
+    private String enrichDirectMessage(String userMessage) {
         String projectContext = gatherProjectContext();
         String gitContext = gatherGitContext();
 
-        String enrichedMessage = String.format("""
+        return String.format("""
                 PROJECT CONTEXT (current directory structure):
                 %s
                 
@@ -273,8 +298,6 @@ public class HybridAgentRouter {
                 Remember: you have tools to explore, read, write files, and run commands. \
                 Use them to fulfill the request — do NOT just give advice.
                 """, projectContext, gitContext, userMessage);
-
-        return directAgent.chat(enrichedMessage);
     }
 
     String gatherProjectContext() {
@@ -295,7 +318,7 @@ public class HybridAgentRouter {
         }
     }
 
-    boolean isComplexTask(String message) {
+    public boolean isComplexTask(String message) {
         String lower = message.toLowerCase();
         return COMPLEX_TASK_KEYWORDS.stream().anyMatch(lower::contains);
     }

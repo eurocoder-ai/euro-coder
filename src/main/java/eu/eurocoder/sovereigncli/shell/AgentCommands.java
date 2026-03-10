@@ -1,5 +1,6 @@
 package eu.eurocoder.sovereigncli.shell;
 
+import eu.eurocoder.sovereigncli.agent.AgentExceptionHandler;
 import eu.eurocoder.sovereigncli.agent.HybridAgentRouter;
 import eu.eurocoder.sovereigncli.agent.HybridResult;
 import eu.eurocoder.sovereigncli.agent.ModelManager;
@@ -10,9 +11,6 @@ import org.springframework.shell.standard.ShellComponent;
 import org.springframework.shell.standard.ShellMethod;
 import org.springframework.shell.standard.ShellOption;
 
-/**
- * Shell commands for interacting with the AI agent: ask, plan, code, ls.
- */
 @ShellComponent
 public class AgentCommands {
 
@@ -46,7 +44,8 @@ public class AgentCommands {
 
             return colorize("Agent: ", AttributedStyle.GREEN) + result.toDisplayString();
         } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
+            return colorize("Error: ", AttributedStyle.RED)
+                    + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
         }
     }
 
@@ -62,7 +61,8 @@ public class AgentCommands {
             HybridResult result = router.chatHybrid(prompt);
             return colorize("Agent: ", AttributedStyle.GREEN) + result.toDisplayString();
         } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
+            return colorize("Error: ", AttributedStyle.RED)
+                    + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
         }
     }
 
@@ -86,7 +86,8 @@ public class AgentCommands {
             String response = router.chatDirect(prompt);
             return colorize("Agent: ", AttributedStyle.GREEN) + response;
         } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
+            return colorize("Error: ", AttributedStyle.RED)
+                    + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
         }
     }
 
@@ -98,7 +99,8 @@ public class AgentCommands {
         try {
             return router.chatDirect("List all files in the directory: " + directory);
         } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
+            return colorize("Error: ", AttributedStyle.RED)
+                    + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
         }
     }
 

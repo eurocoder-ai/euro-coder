@@ -13,9 +13,9 @@
 
     <groupId>eu.eurocoder</groupId>
     <artifactId>sovereign-agent</artifactId>
-    <version>0.3.0-SNAPSHOT</version>
+    <version>0.4.0-SNAPSHOT</version>
     <name>EuroCoder Sovereign Agent</name>
-    <description>A Sovereign AI Developer Agent — Spring Shell CLI powered by LangChain4j, Mistral, and Ollama</description>
+    <description>A Sovereign AI Developer Agent — Spring Shell CLI powered by LangChain4j with 7 AI providers</description>
 
     <licenses>
         <license>
@@ -56,6 +56,27 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-ollama</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
+        <!-- LangChain4j OpenAI integration (also used for xAI Grok and DeepSeek) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
+        <!-- LangChain4j Anthropic integration -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-anthropic</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
+        <!-- LangChain4j Google AI Gemini integration -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-google-ai-gemini</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
 

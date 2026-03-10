@@ -2,6 +2,7 @@ package eu.eurocoder.sovereigncli.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import eu.eurocoder.sovereigncli.agent.Provider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -15,7 +16,7 @@ import java.util.Set;
 
 /**
  * Manages persistent configuration stored in {@code ~/.eurocoder/config.json}.
- * Handles API keys, provider settings, model mode, and custom model overrides.
+ * Handles API keys (per provider), provider settings, model mode, and custom model overrides.
  * <p>
  * Override {@link #getConfigDir()} in tests to redirect storage to a temp directory.
  */
@@ -31,24 +32,53 @@ public class ApiKeyManager {
         return DEFAULT_CONFIG_DIR;
     }
 
-    public String getApiKey() {
-        String envKey = System.getenv("MISTRAL_API_KEY");
-        if (envKey != null && !envKey.isBlank()) {
-            return envKey.trim();
+    // ── Per-provider API key management ─────────────────────────────────
+
+    public String getApiKeyForProvider(Provider provider) {
+        if (!provider.requiresApiKey()) {
+            return null;
         }
 
-        return readConfigField("mistral_api_key");
+        String envVar = provider.envVarName();
+        if (envVar != null) {
+            String envKey = System.getenv(envVar);
+            if (envKey != null && !envKey.isBlank()) {
+                return envKey.trim();
+            }
+        }
+
+        return readConfigField(provider.configField());
     }
 
-    public boolean hasApiKey() {
-        String key = getApiKey();
+    public boolean hasApiKeyForProvider(Provider provider) {
+        if (!provider.requiresApiKey()) {
+            return true;
+        }
+        String key = getApiKeyForProvider(provider);
         return key != null && !key.isBlank();
     }
 
-    public void saveApiKey(String apiKey) throws IOException {
-        writeConfigField("mistral_api_key", apiKey.trim());
+    public void saveApiKeyForProvider(Provider provider, String apiKey) throws IOException {
+        if (provider.configField() == null) {
+            throw new IllegalArgumentException(provider.displayName() + " does not use an API key");
+        }
+        writeConfigField(provider.configField(), apiKey.trim());
         restrictPermissions();
-        log.info("API key saved to {}", getConfigFilePath());
+        log.info("API key for {} saved to {}", provider.displayName(), getConfigFilePath());
+    }
+
+    // ── Legacy Mistral key methods (backward compatibility) ─────────────
+
+    public String getApiKey() {
+        return getApiKeyForProvider(Provider.MISTRAL);
+    }
+
+    public boolean hasApiKey() {
+        return hasApiKeyForProvider(Provider.MISTRAL);
+    }
+
+    public void saveApiKey(String apiKey) throws IOException {
+        saveApiKeyForProvider(Provider.MISTRAL, apiKey);
     }
 
     public void clearApiKey() throws IOException {
@@ -58,6 +88,8 @@ public class ApiKeyManager {
             log.info("API key cleared from {}", configFile);
         }
     }
+
+    // ── Model / Provider config ─────────────────────────────────────────
 
     public String getModelMode() {
         return readConfigField("model_mode");
@@ -133,6 +165,8 @@ public class ApiKeyManager {
     public Path getConfigFilePath() {
         return getConfigDir().resolve("config.json");
     }
+
+    // ── Internal helpers ────────────────────────────────────────────────
 
     private String readConfigField(String field) {
         Path configFile = getConfigFilePath();

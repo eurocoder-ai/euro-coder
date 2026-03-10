@@ -12,9 +12,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * Tests for {@link ModelManager} — provider switching, model mode logic,
- * custom planner/coder overrides, and model name resolution.
- * <p>
- * Uses a mocked {@link ApiKeyManager} to avoid file system side effects.
+ * custom planner/coder overrides, and model name resolution for all providers.
  */
 @ExtendWith(MockitoExtension.class)
 class ModelManagerTest {
@@ -73,6 +71,22 @@ class ModelManagerTest {
 
         assertThat(mgr.getProvider()).isEqualTo(Provider.OLLAMA);
         assertThat(mgr.isOllama()).isTrue();
+    }
+
+    @Test
+    void constructor_loadsPersistedProvider_openai() {
+        when(apiKeyManager.getProvider()).thenReturn("openai");
+        ModelManager mgr = new ModelManager(apiKeyManager);
+
+        assertThat(mgr.getProvider()).isEqualTo(Provider.OPENAI);
+    }
+
+    @Test
+    void constructor_loadsPersistedProvider_anthropic() {
+        when(apiKeyManager.getProvider()).thenReturn("anthropic");
+        ModelManager mgr = new ModelManager(apiKeyManager);
+
+        assertThat(mgr.getProvider()).isEqualTo(Provider.ANTHROPIC);
     }
 
     @Test
@@ -159,6 +173,62 @@ class ModelManagerTest {
 
         verify(apiKeyManager).saveProvider("ollama");
         verify(apiKeyManager).saveModelMode("auto");
+    }
+
+    @Test
+    void switchProvider_toOpenAi_changesDefaults() throws Exception {
+        modelManager.switchProvider(Provider.OPENAI);
+
+        assertThat(modelManager.getProvider()).isEqualTo(Provider.OPENAI);
+        assertThat(modelManager.isAutoMode()).isTrue();
+        assertThat(modelManager.getPlannerModelName()).isEqualTo("gpt-4o");
+        assertThat(modelManager.getCoderModelName()).isEqualTo("gpt-4o");
+
+        verify(apiKeyManager).saveProvider("openai");
+    }
+
+    @Test
+    void switchProvider_toAnthropic_changesDefaults() throws Exception {
+        modelManager.switchProvider(Provider.ANTHROPIC);
+
+        assertThat(modelManager.getProvider()).isEqualTo(Provider.ANTHROPIC);
+        assertThat(modelManager.getPlannerModelName()).isEqualTo("claude-sonnet-4-20250514");
+        assertThat(modelManager.getCoderModelName()).isEqualTo("claude-sonnet-4-20250514");
+
+        verify(apiKeyManager).saveProvider("anthropic");
+    }
+
+    @Test
+    void switchProvider_toGoogleGemini_changesDefaults() throws Exception {
+        modelManager.switchProvider(Provider.GOOGLE_GEMINI);
+
+        assertThat(modelManager.getProvider()).isEqualTo(Provider.GOOGLE_GEMINI);
+        assertThat(modelManager.getPlannerModelName()).isEqualTo("gemini-2.0-flash");
+        assertThat(modelManager.getCoderModelName()).isEqualTo("gemini-2.0-flash");
+
+        verify(apiKeyManager).saveProvider("google");
+    }
+
+    @Test
+    void switchProvider_toXai_changesDefaults() throws Exception {
+        modelManager.switchProvider(Provider.XAI);
+
+        assertThat(modelManager.getProvider()).isEqualTo(Provider.XAI);
+        assertThat(modelManager.getPlannerModelName()).isEqualTo("grok-3");
+        assertThat(modelManager.getCoderModelName()).isEqualTo("grok-3");
+
+        verify(apiKeyManager).saveProvider("xai");
+    }
+
+    @Test
+    void switchProvider_toDeepSeek_changesDefaults() throws Exception {
+        modelManager.switchProvider(Provider.DEEPSEEK);
+
+        assertThat(modelManager.getProvider()).isEqualTo(Provider.DEEPSEEK);
+        assertThat(modelManager.getPlannerModelName()).isEqualTo("deepseek-chat");
+        assertThat(modelManager.getCoderModelName()).isEqualTo("deepseek-chat");
+
+        verify(apiKeyManager).saveProvider("deepseek");
     }
 
     @Test
@@ -250,6 +320,18 @@ class ModelManagerTest {
         assertThat(modelManager.getCoderModelName()).isEqualTo("qwen3-coder");
     }
 
+    // ── Cross-provider custom pairing ────────────────────────────────
+
+    @Test
+    void openAiCustomPairing() {
+        modelManager.switchProvider(Provider.OPENAI);
+        modelManager.setCustomPlannerModel("o3-mini");
+        modelManager.setCustomCoderModel("gpt-4o-mini");
+
+        assertThat(modelManager.getPlannerModelName()).isEqualTo("o3-mini");
+        assertThat(modelManager.getCoderModelName()).isEqualTo("gpt-4o-mini");
+    }
+
     // ── isValidModel ─────────────────────────────────────────────────
 
     @Test
@@ -280,28 +362,50 @@ class ModelManagerTest {
     }
 
     @Test
-    void suggestedModels_areNotEmpty() {
-        assertThat(ModelManager.MISTRAL_SUGGESTIONS).isNotEmpty();
-        assertThat(ModelManager.OLLAMA_SUGGESTIONS).isNotEmpty();
+    void suggestedModels_openai_returnsOpenAiList() {
+        modelManager.switchProvider(Provider.OPENAI);
+        assertThat(modelManager.getSuggestedModels()).isEqualTo(ModelManager.OPENAI_SUGGESTIONS);
+    }
+
+    @Test
+    void suggestedModels_anthropic_returnsAnthropicList() {
+        modelManager.switchProvider(Provider.ANTHROPIC);
+        assertThat(modelManager.getSuggestedModels()).isEqualTo(ModelManager.ANTHROPIC_SUGGESTIONS);
+    }
+
+    @Test
+    void suggestedModels_google_returnsGoogleList() {
+        modelManager.switchProvider(Provider.GOOGLE_GEMINI);
+        assertThat(modelManager.getSuggestedModels()).isEqualTo(ModelManager.GOOGLE_GEMINI_SUGGESTIONS);
+    }
+
+    @Test
+    void suggestedModels_xai_returnsXaiList() {
+        modelManager.switchProvider(Provider.XAI);
+        assertThat(modelManager.getSuggestedModels()).isEqualTo(ModelManager.XAI_SUGGESTIONS);
+    }
+
+    @Test
+    void suggestedModels_deepseek_returnsDeepSeekList() {
+        modelManager.switchProvider(Provider.DEEPSEEK);
+        assertThat(modelManager.getSuggestedModels()).isEqualTo(ModelManager.DEEPSEEK_SUGGESTIONS);
+    }
+
+    @Test
+    void allSuggestionLists_areNotEmpty() {
+        for (Provider p : Provider.values()) {
+            modelManager.switchProvider(p);
+            assertThat(modelManager.getSuggestedModels())
+                    .as("suggestions for " + p.id())
+                    .isNotEmpty();
+        }
     }
 
     // ── Dynamic model listing (without real API) ─────────────────────
 
     @Test
-    void getInstalledOllamaModels_whenMistralProvider_returnsEmpty() {
+    void getInstalledOllamaModels_whenNotOllamaProvider_returnsEmpty() {
         assertThat(modelManager.getInstalledOllamaModels()).isEmpty();
-    }
-
-    @Test
-    void getRemoteMistralModels_whenOllamaProvider_returnsEmpty() {
-        modelManager.switchProvider(Provider.OLLAMA);
-        assertThat(modelManager.getRemoteMistralModels()).isEmpty();
-    }
-
-    @Test
-    void getRemoteMistralModels_whenNoApiKey_returnsEmpty() {
-        when(apiKeyManager.getApiKey()).thenReturn(null);
-        assertThat(modelManager.getRemoteMistralModels()).isEmpty();
     }
 
     @Test
@@ -310,5 +414,19 @@ class ModelManagerTest {
         when(apiKeyManager.getOllamaBaseUrl()).thenReturn("http://localhost:99999");
 
         assertThat(modelManager.getInstalledOllamaModels()).isEmpty();
+    }
+
+    @Test
+    void getAvailableModels_anthropic_returnsEmpty() {
+        modelManager.switchProvider(Provider.ANTHROPIC);
+        assertThat(modelManager.getAvailableModels()).isEmpty();
+    }
+
+    @Test
+    void getAvailableModels_cloudProvider_withoutApiKey_returnsEmpty() {
+        modelManager.switchProvider(Provider.OPENAI);
+        when(apiKeyManager.getApiKeyForProvider(Provider.OPENAI)).thenReturn(null);
+
+        assertThat(modelManager.getAvailableModels()).isEmpty();
     }
 }

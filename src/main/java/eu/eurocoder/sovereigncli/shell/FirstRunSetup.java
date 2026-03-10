@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.Console;
 import java.util.List;
+import java.util.Map;
 
 @Component
 @Order(1)
@@ -24,6 +25,21 @@ public class FirstRunSetup implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(FirstRunSetup.class);
     private static final int MAX_API_KEY_ATTEMPTS = 5;
     private static final int MIN_API_KEY_LENGTH = 10;
+
+    private static final Map<Provider, String> PROVIDER_LABELS = Map.of(
+            Provider.MISTRAL, "Mistral Cloud API (European AI, recommended)",
+            Provider.OLLAMA, "Ollama (100% local / offline)",
+            Provider.OPENAI, "OpenAI (GPT-4o, o3-mini)",
+            Provider.ANTHROPIC, "Anthropic (Claude Sonnet 4)",
+            Provider.GOOGLE_GEMINI, "Google Gemini (Gemini 2.0)",
+            Provider.XAI, "xAI (Grok 3)",
+            Provider.DEEPSEEK, "DeepSeek (V3 / R1)"
+    );
+
+    private static final Provider[] PROVIDER_ORDER = {
+            Provider.MISTRAL, Provider.OLLAMA, Provider.OPENAI,
+            Provider.ANTHROPIC, Provider.GOOGLE_GEMINI, Provider.XAI, Provider.DEEPSEEK
+    };
 
     private final ApiKeyManager apiKeyManager;
     private final ModelManager modelManager;
@@ -53,7 +69,7 @@ public class FirstRunSetup implements ApplicationRunner {
             log.info("No interactive console — skipping first-run setup");
             System.out.println();
             System.out.println("  No provider configured.");
-            System.out.println("  Run interactively to complete setup, or set MISTRAL_API_KEY env var.");
+            System.out.println("  Run interactively to complete setup, or set an API key env var.");
             System.out.println();
             return;
         }
@@ -69,39 +85,43 @@ public class FirstRunSetup implements ApplicationRunner {
 
         printColored("  STEP 1 — Choose your AI provider", AttributedStyle.YELLOW);
         System.out.println();
-        printColored("    [1] Mistral Cloud API (recommended)", AttributedStyle.WHITE);
-        printColored("        European AI provider. Requires API key.", AttributedStyle.WHITE);
-        printColored("        Best quality: Mistral Large + Codestral.", AttributedStyle.WHITE);
-        System.out.println();
-        printColored("    [2] Ollama (100% local / offline)", AttributedStyle.WHITE);
-        printColored("        Runs models entirely on your machine. No API key.", AttributedStyle.WHITE);
-        printColored("        Requires Ollama installed: https://ollama.com", AttributedStyle.WHITE);
+        for (int i = 0; i < PROVIDER_ORDER.length; i++) {
+            Provider p = PROVIDER_ORDER[i];
+            String label = PROVIDER_LABELS.getOrDefault(p, p.displayName());
+            String extra = (i == 0) ? " (recommended)" : "";
+            printColored(String.format("    [%d] %s%s", i + 1, label, extra), AttributedStyle.WHITE);
+        }
         System.out.println();
 
         String providerChoice = console.readLine("  Choice [1]: ");
         int pChoice;
         try {
-            pChoice = (providerChoice == null || providerChoice.isBlank()) ? 1 : Integer.parseInt(providerChoice.trim());
+            pChoice = (providerChoice == null || providerChoice.isBlank())
+                    ? 1 : Integer.parseInt(providerChoice.trim());
         } catch (NumberFormatException e) {
             pChoice = 1;
         }
+        if (pChoice < 1 || pChoice > PROVIDER_ORDER.length) {
+            pChoice = 1;
+        }
 
-        Provider selectedProvider = (pChoice == 2) ? Provider.OLLAMA : Provider.MISTRAL;
+        Provider selectedProvider = PROVIDER_ORDER[pChoice - 1];
         modelManager.switchProvider(selectedProvider);
 
         System.out.println();
         printColored("  Provider set to: " + selectedProvider.displayName(), AttributedStyle.GREEN);
         System.out.println();
 
-        if (selectedProvider == Provider.MISTRAL) {
-            setupMistral(console);
-        } else {
+        int step = 2;
+        if (selectedProvider == Provider.OLLAMA) {
             setupOllama(console);
+        } else if (selectedProvider.requiresApiKey()) {
+            setupApiKey(console, selectedProvider, step);
+            step++;
         }
 
         System.out.println();
-        printColored("  STEP " + (selectedProvider == Provider.MISTRAL ? "3" : "2")
-                + " — Choose your model", AttributedStyle.YELLOW);
+        printColored("  STEP " + step + " — Choose your model", AttributedStyle.YELLOW);
         System.out.println();
 
         List<ModelOption> models = modelManager.getSuggestedModels();
@@ -148,14 +168,16 @@ public class FirstRunSetup implements ApplicationRunner {
 
         printColored("  You're all set! Type 'ask <prompt>' to start.", AttributedStyle.CYAN);
         printColored("  Type 'model' to switch models later.", AttributedStyle.CYAN);
-        printColored("  Type 'provider' to switch between Mistral / Ollama.", AttributedStyle.CYAN);
+        printColored("  Type 'provider' to switch between providers.", AttributedStyle.CYAN);
         printColored("  Type 'help' for all available commands.", AttributedStyle.CYAN);
         System.out.println();
     }
 
-    private void setupMistral(Console console) {
-        printColored("  STEP 2 — Mistral API Key", AttributedStyle.YELLOW);
-        printColored("  Get one at: https://console.mistral.ai/api-keys", AttributedStyle.YELLOW);
+    private void setupApiKey(Console console, Provider provider, int step) {
+        printColored("  STEP " + step + " — " + provider.displayName() + " API Key", AttributedStyle.YELLOW);
+        if (provider.envVarName() != null) {
+            printColored("  (You can also set " + provider.envVarName() + " env var instead)", AttributedStyle.WHITE);
+        }
         System.out.println();
 
         String apiKey = promptApiKey(console);
@@ -164,7 +186,7 @@ public class FirstRunSetup implements ApplicationRunner {
         }
 
         try {
-            apiKeyManager.saveApiKey(apiKey);
+            apiKeyManager.saveApiKeyForProvider(provider, apiKey);
         } catch (Exception e) {
             printColored("  Error saving key: " + e.getMessage(), AttributedStyle.RED);
             return;
@@ -192,15 +214,17 @@ public class FirstRunSetup implements ApplicationRunner {
 
         System.out.println();
         printColored("  Make sure Ollama is running: 'ollama serve'", AttributedStyle.WHITE);
-        printColored("  Pull models with: 'ollama pull mistral' or 'ollama pull codestral'", AttributedStyle.WHITE);
+        printColored("  Pull models with: 'ollama pull llama3.1'", AttributedStyle.WHITE);
     }
 
     private boolean isAlreadyConfigured() {
-        if (apiKeyManager.hasApiKey()) {
-            return true;
-        }
         String savedProvider = apiKeyManager.getProvider();
-        return "ollama".equalsIgnoreCase(savedProvider);
+        if (savedProvider == null || savedProvider.isBlank()) {
+            return apiKeyManager.hasApiKey();
+        }
+
+        Provider p = Provider.fromId(savedProvider);
+        return apiKeyManager.hasApiKeyForProvider(p);
     }
 
     private String promptApiKey(Console console) {
@@ -208,7 +232,7 @@ public class FirstRunSetup implements ApplicationRunner {
             try {
                 char[] chars = console.readPassword("  Key (hidden): ");
                 if (chars == null) {
-                    printColored("  Set MISTRAL_API_KEY env var or use 'config-key <key>' after startup.", AttributedStyle.YELLOW);
+                    printColored("  Set the env var or use 'config-key <key>' after startup.", AttributedStyle.YELLOW);
                     return null;
                 }
 
@@ -218,7 +242,7 @@ public class FirstRunSetup implements ApplicationRunner {
                     continue;
                 }
                 if (key.length() < MIN_API_KEY_LENGTH) {
-                    printColored("  That doesn't look like a valid Mistral API key. Please try again.", AttributedStyle.RED);
+                    printColored("  That doesn't look like a valid API key. Please try again.", AttributedStyle.RED);
                     continue;
                 }
 
@@ -236,8 +260,8 @@ public class FirstRunSetup implements ApplicationRunner {
         System.out.println();
         printColored("  EuroCoder (Sovereign Edition) — Ready.", AttributedStyle.CYAN);
 
-        String providerLabel = modelManager.isMistral() ? "Mistral Cloud" : "Ollama (Local)";
-        printColored("  Provider: " + providerLabel, AttributedStyle.WHITE);
+        Provider current = modelManager.getProvider();
+        printColored("  Provider: " + current.displayName(), AttributedStyle.WHITE);
 
         String mode = modelManager.getCurrentMode();
         if ("auto".equals(mode)) {

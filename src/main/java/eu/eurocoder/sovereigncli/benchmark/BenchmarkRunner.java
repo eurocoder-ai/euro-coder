@@ -6,6 +6,7 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 import dev.langchain4j.service.AiServices;
+import eu.eurocoder.sovereigncli.agent.AgentExceptionHandler;
 import eu.eurocoder.sovereigncli.agent.ModelManager;
 import eu.eurocoder.sovereigncli.security.AuditLog;
 import eu.eurocoder.sovereigncli.security.PermissionService;
@@ -100,7 +101,7 @@ public class BenchmarkRunner {
                     elapsed, "Timeout after " + task.timeoutSeconds() + "s");
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - startTime;
-            String message = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+            String message = AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
             log.warn("Benchmark task '{}' failed: {}", task.id(), message);
             return BenchmarkResult.failure(task.id(), task.category(), modelName, provider,
                     elapsed, message);

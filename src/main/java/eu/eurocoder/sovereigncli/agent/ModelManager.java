@@ -4,11 +4,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import eu.eurocoder.sovereigncli.config.ApiKeyManager;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
+import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
 import dev.langchain4j.model.mistralai.MistralAiChatModel;
+import dev.langchain4j.model.mistralai.MistralAiStreamingChatModel;
 import dev.langchain4j.model.ollama.OllamaChatModel;
+import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -204,6 +210,7 @@ public class ModelManager {
     private String customCoderModel;
     private ChatModel plannerModel;
     private ChatModel coderModel;
+    private StreamingChatModel streamingCoderModel;
 
     public ModelManager(ApiKeyManager apiKeyManager) {
         this.apiKeyManager = apiKeyManager;
@@ -238,12 +245,22 @@ public class ModelManager {
         return coderModel;
     }
 
+    public synchronized StreamingChatModel getStreamingCoderModel() {
+        if (streamingCoderModel == null) {
+            String name = getCoderModelName();
+            log.info("Creating streaming coder model: {} (provider={})", name, provider.id());
+            streamingCoderModel = buildStreamingModel(name, coderTemperature);
+        }
+        return streamingCoderModel;
+    }
+
     public synchronized void switchMode(String newMode) {
         this.currentMode = newMode;
         this.customPlannerModel = null;
         this.customCoderModel = null;
         this.plannerModel = null;
         this.coderModel = null;
+        this.streamingCoderModel = null;
 
         try {
             apiKeyManager.saveModelMode(newMode);
@@ -272,6 +289,7 @@ public class ModelManager {
         this.currentMode = AUTO_MODE;
         this.customCoderModel = modelName;
         this.coderModel = null;
+        this.streamingCoderModel = null;
 
         try {
             apiKeyManager.saveModelMode(AUTO_MODE);
@@ -289,6 +307,7 @@ public class ModelManager {
         this.customCoderModel = null;
         this.plannerModel = null;
         this.coderModel = null;
+        this.streamingCoderModel = null;
 
         try {
             apiKeyManager.saveProvider(newProvider.id());
@@ -522,6 +541,45 @@ public class ModelManager {
                 .logRequests(false)
                 .logResponses(false)
                 .build();
+    }
+
+    // ── Streaming model building ───────────────────────────────────────
+
+    private StreamingChatModel buildStreamingModel(String modelName, double temperature) {
+        return switch (provider) {
+            case OLLAMA -> OllamaStreamingChatModel.builder()
+                    .baseUrl(apiKeyManager.getOllamaBaseUrl())
+                    .modelName(modelName)
+                    .temperature(temperature)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .build();
+            case MISTRAL -> MistralAiStreamingChatModel.builder()
+                    .apiKey(requireApiKey("Mistral"))
+                    .modelName(modelName)
+                    .temperature(temperature)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .build();
+            case OPENAI, XAI, DEEPSEEK -> OpenAiStreamingChatModel.builder()
+                    .baseUrl(provider.defaultBaseUrl())
+                    .apiKey(requireApiKey(provider.displayName()))
+                    .modelName(modelName)
+                    .temperature(temperature)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .build();
+            case ANTHROPIC -> AnthropicStreamingChatModel.builder()
+                    .apiKey(requireApiKey("Anthropic"))
+                    .modelName(modelName)
+                    .temperature(temperature)
+                    .maxTokens(ANTHROPIC_MAX_TOKENS)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .build();
+            case GOOGLE_GEMINI -> GoogleAiGeminiStreamingChatModel.builder()
+                    .apiKey(requireApiKey("Google Gemini"))
+                    .modelName(modelName)
+                    .temperature(temperature)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .build();
+        };
     }
 
     private String requireApiKey(String providerName) {

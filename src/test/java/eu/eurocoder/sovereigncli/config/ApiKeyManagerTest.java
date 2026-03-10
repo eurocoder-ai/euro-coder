@@ -312,6 +312,37 @@ class ApiKeyManagerTest {
         assertThat(root.get("openai_api_key").asText()).isEqualTo("sk-openai");
     }
 
+    // ── Beta feature flag ────────────────────────────────────────────
+
+    @Test
+    void isBetaEnabled_falseByDefault() {
+        assertThat(apiKeyManager.isBetaEnabled()).isFalse();
+    }
+
+    @Test
+    void saveBetaEnabled_true() throws IOException {
+        apiKeyManager.saveBetaEnabled(true);
+
+        assertThat(apiKeyManager.isBetaEnabled()).isTrue();
+    }
+
+    @Test
+    void saveBetaEnabled_false() throws IOException {
+        apiKeyManager.saveBetaEnabled(true);
+        apiKeyManager.saveBetaEnabled(false);
+
+        assertThat(apiKeyManager.isBetaEnabled()).isFalse();
+    }
+
+    @Test
+    void betaFlag_persistsWithOtherConfig() throws IOException {
+        apiKeyManager.saveProvider("openai");
+        apiKeyManager.saveBetaEnabled(true);
+
+        assertThat(apiKeyManager.getProvider()).isEqualTo("openai");
+        assertThat(apiKeyManager.isBetaEnabled()).isTrue();
+    }
+
     // ── Config file path ─────────────────────────────────────────────
 
     @Test

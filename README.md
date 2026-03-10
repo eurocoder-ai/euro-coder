@@ -2,15 +2,6 @@
 
 A locally-running AI coding agent that gives you **Cursor / Claude Code capabilities** with full control over your AI provider. Supports **7 providers** — Mistral, Ollama, OpenAI, Anthropic, Google Gemini, xAI (Grok), and DeepSeek — with full offline support via Ollama.
 
-## Changelog
-
-| Version | Date | Highlights |
-|---|---|---|
-| **0.4.0** | 2026-03-10 | Multi-provider support (7 providers), beta feature flag system, improved error handling |
-| **0.3.0** | 2026-02-19 | Benchmarking framework (12 tasks, raw + agent modes, result persistence) |
-| **0.2.0** | 2026-02-18 | Security fixes, SIGINT handling, package rename to `eu.eurocoder` |
-| **0.1.0** | 2026-02-17 | Initial release — hybrid planner/coder, Mistral + Ollama, security hardening |
-
 ```
 euro-coder:> ask check my running docker containers
 
@@ -178,31 +169,6 @@ List available models from any provider:
 
 ```
 euro-coder:> model list
-```
-
-### Beta Features
-
-EuroCoder includes a beta flag system for features under active development. Once a feature is stable, it graduates out of beta and becomes always-available.
-
-```
-euro-coder:> beta
-
-  Beta Features: DISABLED
-
-  Currently behind beta flag:
-    - Streaming Responses  (real-time token streaming, progress indicators)
-
-  Usage:
-    beta on    — Enable beta features
-    beta off   — Disable beta features
-```
-
-Enable beta to access experimental features:
-
-```
-euro-coder:> beta on
-Beta features ENABLED
-  Experimental features are now active. Use at your own risk.
 ```
 
 ### Agent Tools
@@ -465,17 +431,16 @@ Apple Silicon Macs (M1/M2/M3/M4) are particularly well-suited due to unified mem
 
 ## Roadmap
 
-| Milestone | Feature | Status |
-|---|---|---|
-| M1 | Hybrid Planner/Coder + Security Hardening | ✓ Done (v0.1.0) |
-| M2 | Benchmarking Framework | ✓ Done (v0.3.0) |
-| M3 | Multi-Provider Support (7 providers) | ✓ Done (v0.4.0) |
-| M4 | Streaming Responses — real-time token streaming, progress indicators, cancel support | Beta flag |
-| M5 | MCP (Model Context Protocol) — standard tool integration protocol | Planned |
-| M6 | Local RAG — embed and search your codebase locally | Planned |
-| M7 | IDE Integration — VS Code extension and IntelliJ plugin | Planned |
-| M8 | Conversation Persistence — save and resume coding sessions | Planned |
-| M9 | Native Packaging — Homebrew, GraalVM native binary, Docker image | Planned |
+EuroCoder is a working prototype. Planned future development includes:
+
+- **MCP (Model Context Protocol)** — Standard tool integration protocol for interoperability
+- **Local RAG** — Embed and search your entire codebase locally for context-aware assistance
+- **IDE Integration** — VS Code extension and IntelliJ plugin
+- ~~**Multi-provider expansion** — OpenAI, Anthropic, Google Gemini, xAI, DeepSeek~~ ✓ Done (v0.4.0)
+- **Native packaging** — Homebrew formula, GraalVM native binary, Docker image
+- **Streaming responses** — Real-time token streaming for better UX
+- **Conversation persistence** — Save and resume coding sessions
+- ~~**Benchmarking framework** — Automated model evaluation on coding tasks~~ ✓ Done (v0.3.0)
 
 ## Changelog
 
@@ -487,12 +452,9 @@ Apple Silicon Macs (M1/M2/M3/M4) are particularly well-suited due to unified mem
   - Live model listing from provider APIs via `model list`
   - Per-provider API key storage in `~/.eurocoder/config.json` with env var overrides
   - xAI and DeepSeek use OpenAI-compatible protocol (shared LangChain4j integration)
-- Beta feature flag system: `beta on` / `beta off` to enable experimental features
-  - Streaming responses (M4) is the first feature behind beta flag
 - Updated first-run setup wizard with all 7 providers
 - `config-key` now sets the API key for the currently active provider
 - `provider` command shows all available providers with descriptions
-- Improved exception handling for all providers (rate limits, auth, server errors)
 
 ### 0.3.0-SNAPSHOT (2026-02-19)
 

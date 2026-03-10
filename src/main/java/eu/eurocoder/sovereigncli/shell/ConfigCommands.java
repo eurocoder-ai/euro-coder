@@ -272,59 +272,6 @@ public class ConfigCommands {
         return result;
     }
 
-    @ShellMethod(key = "beta", value = "Show or toggle beta features (on / off)")
-    public String beta(@ShellOption(defaultValue = "") String action) {
-        String normalized = action.trim().toLowerCase();
-
-        if (normalized.isEmpty()) {
-            return showBetaStatus();
-        }
-
-        return switch (normalized) {
-            case "on" -> setBeta(true);
-            case "off" -> setBeta(false);
-            default -> colorize("Usage: beta | beta on | beta off", AttributedStyle.YELLOW);
-        };
-    }
-
-    private String showBetaStatus() {
-        boolean enabled = apiKeyManager.isBetaEnabled();
-        StringBuilder sb = new StringBuilder("\n");
-
-        sb.append(colorize("  Beta Features: " + (enabled ? "ENABLED" : "DISABLED"),
-                enabled ? AttributedStyle.GREEN : AttributedStyle.WHITE)).append("\n\n");
-
-        if (enabled) {
-            sb.append(colorize("  Beta features are live and usable.", AttributedStyle.WHITE)).append("\n");
-            sb.append(colorize("  They are under development and not fully secured.", AttributedStyle.YELLOW)).append("\n\n");
-        }
-
-        sb.append(colorize("  Features behind beta flag:", AttributedStyle.CYAN)).append("\n");
-        sb.append(colorize("    - Streaming Responses  (real-time token streaming, progress indicators)", AttributedStyle.WHITE)).append("\n");
-        sb.append("\n");
-        sb.append(colorize("  Usage:", AttributedStyle.WHITE)).append("\n");
-        sb.append(colorize("    beta on    — Enable beta features (they become live immediately)", AttributedStyle.WHITE)).append("\n");
-        sb.append(colorize("    beta off   — Disable beta features", AttributedStyle.WHITE));
-        return sb.toString();
-    }
-
-    private String setBeta(boolean enabled) {
-        try {
-            apiKeyManager.saveBetaEnabled(enabled);
-            if (enabled) {
-                return colorize("Beta features ENABLED", AttributedStyle.GREEN)
-                        + "\n\n" + colorize("  WARNING: Beta features are under active development.", AttributedStyle.YELLOW)
-                        + "\n" + colorize("  They may be incomplete, unstable, or not fully secured.", AttributedStyle.YELLOW)
-                        + "\n" + colorize("  By continuing you accept these risks.", AttributedStyle.YELLOW)
-                        + "\n\n" + colorize("  All beta features are now live and usable.", AttributedStyle.WHITE);
-            }
-            return colorize("Beta features DISABLED", AttributedStyle.YELLOW)
-                    + "\n" + colorize("  Experimental features are no longer accessible.", AttributedStyle.WHITE);
-        } catch (Exception e) {
-            return colorize("Error: ", AttributedStyle.RED) + e.getMessage();
-        }
-    }
-
     @ShellMethod(key = "config-key", value = "Set API key for the current provider")
     public String configKey(@ShellOption(help = "Your API key") String key) {
         Provider current = modelManager.getProvider();
@@ -393,7 +340,6 @@ public class ConfigCommands {
         Provider current = modelManager.getProvider();
         boolean ready = !current.requiresApiKey() || apiKeyManager.hasApiKeyForProvider(current);
         String mode = modelManager.getCurrentMode();
-        String betaLabel = apiKeyManager.isBetaEnabled() ? "ON" : "off";
 
         return String.format("""
                 

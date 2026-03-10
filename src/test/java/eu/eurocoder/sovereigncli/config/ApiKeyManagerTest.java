@@ -2,6 +2,7 @@ package eu.eurocoder.sovereigncli.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import eu.eurocoder.sovereigncli.agent.Provider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -11,13 +12,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for {@link ApiKeyManager} — config file persistence, API key management,
- * provider/model settings.
- * <p>
- * Overrides {@link ApiKeyManager#getConfigDir()} to redirect storage to a temp
- * directory, ensuring tests don't touch the real ~/.eurocoder/config.json.
+ * Tests for {@link ApiKeyManager} — config file persistence, per-provider API key
+ * management, provider/model settings.
  */
 class ApiKeyManagerTest {
 
@@ -38,8 +37,14 @@ class ApiKeyManagerTest {
 
             @Override
             public String getApiKey() {
-                // Skip env var check in tests — only read from file
-                return hasConfigField("mistral_api_key") ? super.getApiKey() : null;
+                return hasConfigField("mistral_api_key") ? readFromConfig("mistral_api_key") : null;
+            }
+
+            @Override
+            public String getApiKeyForProvider(Provider provider) {
+                if (!provider.requiresApiKey()) return null;
+                String field = provider.configField();
+                return hasConfigField(field) ? readFromConfig(field) : null;
             }
 
             private boolean hasConfigField(String field) {
@@ -52,11 +57,23 @@ class ApiKeyManagerTest {
                     return false;
                 }
             }
+
+            private String readFromConfig(String field) {
+                Path config = getConfigFilePath();
+                try {
+                    var root = new ObjectMapper().readTree(config.toFile());
+                    if (root.has(field)) {
+                        String val = root.get(field).asText();
+                        return val.isBlank() ? null : val;
+                    }
+                } catch (IOException e) { /* fall through */ }
+                return null;
+            }
         };
         configFile = tempDir.resolve("config.json");
     }
 
-    // ── API Key ──────────────────────────────────────────────────────
+    // ── Legacy API Key (Mistral) ────────────────────────────────────
 
     @Test
     void hasApiKey_falseWhenNoConfig() {
@@ -94,6 +111,84 @@ class ApiKeyManagerTest {
         apiKeyManager.clearApiKey();
     }
 
+    // ── Per-provider API key management ─────────────────────────────
+
+    @Test
+    void saveAndGetApiKeyForProvider_openai() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.OPENAI, "sk-openai-test-key");
+
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.OPENAI)).isEqualTo("sk-openai-test-key");
+        assertThat(apiKeyManager.hasApiKeyForProvider(Provider.OPENAI)).isTrue();
+    }
+
+    @Test
+    void saveAndGetApiKeyForProvider_anthropic() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.ANTHROPIC, "sk-ant-test-key");
+
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.ANTHROPIC)).isEqualTo("sk-ant-test-key");
+        assertThat(apiKeyManager.hasApiKeyForProvider(Provider.ANTHROPIC)).isTrue();
+    }
+
+    @Test
+    void saveAndGetApiKeyForProvider_google() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.GOOGLE_GEMINI, "AIzaSy-test-key");
+
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.GOOGLE_GEMINI)).isEqualTo("AIzaSy-test-key");
+    }
+
+    @Test
+    void saveAndGetApiKeyForProvider_xai() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.XAI, "xai-test-key");
+
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.XAI)).isEqualTo("xai-test-key");
+    }
+
+    @Test
+    void saveAndGetApiKeyForProvider_deepseek() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.DEEPSEEK, "sk-deepseek-test");
+
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.DEEPSEEK)).isEqualTo("sk-deepseek-test");
+    }
+
+    @Test
+    void hasApiKeyForProvider_falseWhenNoKey() {
+        assertThat(apiKeyManager.hasApiKeyForProvider(Provider.OPENAI)).isFalse();
+    }
+
+    @Test
+    void hasApiKeyForProvider_ollama_alwaysTrue() {
+        assertThat(apiKeyManager.hasApiKeyForProvider(Provider.OLLAMA)).isTrue();
+    }
+
+    @Test
+    void getApiKeyForProvider_ollama_returnsNull() {
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.OLLAMA)).isNull();
+    }
+
+    @Test
+    void saveApiKeyForProvider_ollama_throwsException() {
+        assertThatThrownBy(() -> apiKeyManager.saveApiKeyForProvider(Provider.OLLAMA, "key"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void multipleProviderKeys_coexist() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.MISTRAL, "sk-mistral");
+        apiKeyManager.saveApiKeyForProvider(Provider.OPENAI, "sk-openai");
+        apiKeyManager.saveApiKeyForProvider(Provider.ANTHROPIC, "sk-anthropic");
+
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.MISTRAL)).isEqualTo("sk-mistral");
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.OPENAI)).isEqualTo("sk-openai");
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.ANTHROPIC)).isEqualTo("sk-anthropic");
+    }
+
+    @Test
+    void saveApiKeyForProvider_trimsWhitespace() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.OPENAI, "  sk-trimmed  ");
+
+        assertThat(apiKeyManager.getApiKeyForProvider(Provider.OPENAI)).isEqualTo("sk-trimmed");
+    }
+
     // ── Model Mode ───────────────────────────────────────────────────
 
     @Test
@@ -120,6 +215,13 @@ class ApiKeyManagerTest {
         apiKeyManager.saveProvider("ollama");
 
         assertThat(apiKeyManager.getProvider()).isEqualTo("ollama");
+    }
+
+    @Test
+    void saveAndGetProvider_openai() throws IOException {
+        apiKeyManager.saveProvider("openai");
+
+        assertThat(apiKeyManager.getProvider()).isEqualTo("openai");
     }
 
     // ── Ollama URL ───────────────────────────────────────────────────
@@ -194,6 +296,20 @@ class ApiKeyManagerTest {
         assertThat(root.has("mistral_api_key")).isTrue();
         assertThat(root.has("provider")).isTrue();
         assertThat(root.get("mistral_api_key").asText()).isEqualTo("sk-test");
+    }
+
+    @Test
+    void configFile_storesMultipleProviderKeys() throws IOException {
+        apiKeyManager.saveApiKeyForProvider(Provider.MISTRAL, "sk-mistral");
+        apiKeyManager.saveApiKeyForProvider(Provider.OPENAI, "sk-openai");
+
+        String json = Files.readString(configFile);
+        ObjectNode root = (ObjectNode) objectMapper.readTree(json);
+
+        assertThat(root.has("mistral_api_key")).isTrue();
+        assertThat(root.has("openai_api_key")).isTrue();
+        assertThat(root.get("mistral_api_key").asText()).isEqualTo("sk-mistral");
+        assertThat(root.get("openai_api_key").asText()).isEqualTo("sk-openai");
     }
 
     // ── Config file path ─────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # EuroCoder — Sovereign AI Developer Agent
 
-A locally-running AI coding agent that gives you **Cursor / Claude Code capabilities** without sending your code to US cloud providers. Built on European AI (Mistral) with full offline support via Ollama.
+A locally-running AI coding agent that gives you **Cursor / Claude Code capabilities** with full control over your AI provider. Supports **7 providers** — Mistral, Ollama, OpenAI, Anthropic, Google Gemini, xAI (Grok), and DeepSeek — with full offline support via Ollama.
 
 ```
 euro-coder:> ask check my running docker containers
@@ -142,12 +142,34 @@ euro-coder:> benchmark list
 - **12 starter tasks** across 4 categories: code generation, refactoring, debugging, tool calling
 - **Extensible**: Add new tasks by dropping JSON files into `src/main/resources/benchmarks/`
 
-### Dual Provider Support
+### Multi-Provider Support
 
-| Provider | How it works | API Key? | Best for |
+| Provider | How it works | API Key? | Default Models |
 |---|---|---|---|
-| **Mistral** (default) | Cloud API to Mistral's European servers | Yes | Best quality, low latency |
-| **Ollama** | Runs models 100% on your machine | No | Total sovereignty, offline |
+| **Mistral** (default) | European cloud API | Yes | `mistral-large-latest` + `codestral-latest` |
+| **Ollama** | 100% local / offline | No | `llama3.1` + `qwen3:4b` |
+| **OpenAI** | OpenAI cloud API | Yes | `gpt-4o` |
+| **Anthropic** | Anthropic cloud API | Yes | `claude-sonnet-4-20250514` |
+| **Google Gemini** | Google AI cloud API | Yes | `gemini-2.0-flash` |
+| **xAI (Grok)** | xAI cloud API | Yes | `grok-3` |
+| **DeepSeek** | DeepSeek cloud API | Yes | `deepseek-chat` |
+
+Switch providers anytime:
+
+```
+euro-coder:> provider openai
+euro-coder:> provider anthropic
+euro-coder:> provider google
+euro-coder:> provider xai
+euro-coder:> provider deepseek
+euro-coder:> provider ollama
+```
+
+List available models from any provider:
+
+```
+euro-coder:> model list
+```
 
 ### Agent Tools
 
@@ -173,7 +195,7 @@ The AI agent can interact with your system through:
 ### Prerequisites
 
 - **Java 21+** ([Eclipse Temurin](https://adoptium.net/) or any OpenJDK distribution)
-- **Mistral API key** ([get one here](https://console.mistral.ai/api-keys)) — or Ollama for offline mode
+- **API key** for your chosen provider — or Ollama for offline mode
 
 ### Build & Run
 
@@ -185,15 +207,15 @@ cd eurocoder
 ./mvnw clean package -DskipTests
 
 # Run
-java -jar target/sovereign-agent-0.3.0-SNAPSHOT.jar
+java -jar target/sovereign-agent-0.4.0-SNAPSHOT.jar
 ```
 
 > **Note:** Always use `java -jar` to run EuroCoder. Running via `mvn spring-boot:run` causes Ctrl+C to kill the entire process because Maven intercepts the signal before JLine can handle it.
 
 On first launch, an interactive setup will guide you through:
 
-1. **Choose provider** — Mistral Cloud or Ollama Local
-2. **Enter API key** (Mistral only, input is masked)
+1. **Choose provider** — Mistral, Ollama, OpenAI, Anthropic, Google Gemini, xAI, or DeepSeek
+2. **Enter API key** (cloud providers only, input is masked)
 3. **Select model** — from curated recommendations or type any model name
 
 ### Using Ollama (Offline Mode)
@@ -236,9 +258,8 @@ euro-coder:> provider ollama
 | `model auto` | Reset to default auto pairing |
 | `model planner <name>` | Set a custom planner model |
 | `model coder <name>` | Set a custom coder model |
-| `provider` | Show current provider |
-| `provider mistral` | Switch to Mistral Cloud API |
-| `provider ollama` | Switch to Ollama (local) |
+| `provider` | Show all available providers |
+| `provider <name>` | Switch provider (`mistral`, `ollama`, `openai`, `anthropic`, `google`, `xai`, `deepseek`) |
 
 ### Security
 
@@ -274,7 +295,7 @@ euro-coder:> provider ollama
 | Command | Description |
 |---|---|
 | `config-show` | Show current configuration (API key is masked) |
-| `config-key <key>` | Update your Mistral API key |
+| `config-key <key>` | Set API key for the current provider |
 | `config-clear` | Remove stored API key |
 | `status` | Show full agent status |
 | `help` | List all available commands |
@@ -366,10 +387,15 @@ All configuration is stored in `~/.eurocoder/config.json` with owner-only file p
 }
 ```
 
-You can also set the API key via environment variable:
+You can also set API keys via environment variables:
 
 ```bash
 export MISTRAL_API_KEY=sk-your-key-here
+export OPENAI_API_KEY=sk-your-key-here
+export ANTHROPIC_API_KEY=sk-your-key-here
+export GOOGLE_API_KEY=your-key-here
+export XAI_API_KEY=your-key-here
+export DEEPSEEK_API_KEY=sk-your-key-here
 ```
 
 ## Technology Stack
@@ -379,7 +405,7 @@ export MISTRAL_API_KEY=sk-your-key-here
 | Framework | [Spring Boot](https://spring.io/projects/spring-boot) 3.3 | Production-grade Java framework |
 | CLI | [Spring Shell](https://spring.io/projects/spring-shell) 3.3 | Interactive terminal with history, autocomplete |
 | AI Framework | [LangChain4j](https://docs.langchain4j.dev/) 1.11 | Java-native AI integration with tool calling |
-| Cloud AI | [Mistral AI](https://mistral.ai/) | European AI provider (Paris, France) |
+| Cloud AI | [Mistral](https://mistral.ai/), [OpenAI](https://openai.com/), [Anthropic](https://anthropic.com/), [Google Gemini](https://ai.google.dev/), [xAI](https://x.ai/), [DeepSeek](https://deepseek.com/) | 6 cloud providers with live model listing |
 | Local AI | [Ollama](https://ollama.com/) | Local model runtime, no cloud dependency |
 | Build | Maven + GraalVM (optional) | Standard Java build with native image option |
 
@@ -407,13 +433,25 @@ EuroCoder is a working prototype. Planned future development includes:
 - **MCP (Model Context Protocol)** — Standard tool integration protocol for interoperability
 - **Local RAG** — Embed and search your entire codebase locally for context-aware assistance
 - **IDE Integration** — VS Code extension and IntelliJ plugin
-- **Multi-provider expansion** — Hugging Face Inference API, local GGUF models
+- ~~**Multi-provider expansion** — OpenAI, Anthropic, Google Gemini, xAI, DeepSeek~~ ✓ Done (v0.4.0)
 - **Native packaging** — Homebrew formula, GraalVM native binary, Docker image
 - **Streaming responses** — Real-time token streaming for better UX
 - **Conversation persistence** — Save and resume coding sessions
 - ~~**Benchmarking framework** — Automated model evaluation on coding tasks~~ ✓ Done (v0.3.0)
 
 ## Changelog
+
+### 0.4.0-SNAPSHOT (2026-03-10)
+
+**New Features**
+- Multi-provider support: 7 AI providers — Mistral, Ollama, OpenAI, Anthropic, Google Gemini, xAI (Grok), DeepSeek
+  - Each provider has curated model suggestions and default planner/coder models
+  - Live model listing from provider APIs via `model list`
+  - Per-provider API key storage in `~/.eurocoder/config.json` with env var overrides
+  - xAI and DeepSeek use OpenAI-compatible protocol (shared LangChain4j integration)
+- Updated first-run setup wizard with all 7 providers
+- `config-key` now sets the API key for the currently active provider
+- `provider` command shows all available providers with descriptions
 
 ### 0.3.0-SNAPSHOT (2026-02-19)
 

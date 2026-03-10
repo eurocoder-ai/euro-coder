@@ -12,16 +12,23 @@ import org.springframework.shell.standard.ShellMethod;
 import org.springframework.shell.standard.ShellOption;
 
 import java.util.List;
+import java.util.Map;
 
-/**
- * Shell commands for configuration: provider, model, config-key, config-clear,
- * config-show, and status.
- */
 @ShellComponent
 public class ConfigCommands {
 
     private static final int API_KEY_MASK_MIN_LENGTH = 8;
     private static final int API_KEY_MASK_VISIBLE_CHARS = 4;
+
+    private static final Map<Provider, String> PROVIDER_DESCRIPTIONS = Map.of(
+            Provider.MISTRAL, "European cloud API (requires API key, best quality)",
+            Provider.OLLAMA, "100% local / offline (no API key, total sovereignty)",
+            Provider.OPENAI, "OpenAI cloud API (GPT-4o, o3-mini, requires API key)",
+            Provider.ANTHROPIC, "Anthropic cloud API (Claude Sonnet, requires API key)",
+            Provider.GOOGLE_GEMINI, "Google AI cloud API (Gemini 2.0, requires API key)",
+            Provider.XAI, "xAI cloud API (Grok 3, requires API key)",
+            Provider.DEEPSEEK, "DeepSeek cloud API (V3/R1, requires API key)"
+    );
 
     private final HybridAgentRouter router;
     private final ModelManager modelManager;
@@ -33,7 +40,7 @@ public class ConfigCommands {
         this.apiKeyManager = apiKeyManager;
     }
 
-    @ShellMethod(key = "provider", value = "Show or switch the AI provider (mistral / ollama)")
+    @ShellMethod(key = "provider", value = "Show or switch the AI provider")
     public String provider(@ShellOption(defaultValue = "") String name) {
         if (name.isBlank()) {
             return showProvider();
@@ -50,10 +57,7 @@ public class ConfigCommands {
 
         for (Provider p : Provider.values()) {
             String active = (p == current) ? " <-- active" : "";
-            String desc = switch (p) {
-                case MISTRAL -> "European cloud API (requires API key, best quality)";
-                case OLLAMA -> "100% local / offline (no API key, total sovereignty)";
-            };
+            String desc = PROVIDER_DESCRIPTIONS.getOrDefault(p, "");
             sb.append(String.format("    %-12s %s%s\n",
                     colorize(p.id(), AttributedStyle.GREEN),
                     desc,
@@ -61,7 +65,7 @@ public class ConfigCommands {
         }
 
         sb.append("\n");
-        sb.append(colorize("  Usage: provider <name>  (e.g. 'provider ollama')", AttributedStyle.WHITE));
+        sb.append(colorize("  Usage: provider <name>  (e.g. 'provider openai')", AttributedStyle.WHITE));
         return sb.toString();
     }
 
@@ -70,13 +74,24 @@ public class ConfigCommands {
         Provider newProvider = Provider.fromId(trimmedName);
 
         if (!newProvider.id().equalsIgnoreCase(trimmedName)) {
-            return colorize("Unknown provider: '" + name + "'. Use 'mistral' or 'ollama'.", AttributedStyle.RED);
+            String validNames = String.join(", ",
+                    java.util.Arrays.stream(Provider.values())
+                            .map(Provider::id)
+                            .toArray(String[]::new));
+            return colorize("Unknown provider: '" + name + "'. Use one of: " + validNames, AttributedStyle.RED);
         }
 
-        if (newProvider == Provider.MISTRAL && !apiKeyManager.hasApiKey()) {
-            return colorize("No Mistral API key configured. Set one first with 'config-key <key>'.", AttributedStyle.RED);
+        if (newProvider.requiresApiKey() && !apiKeyManager.hasApiKeyForProvider(newProvider)) {
+            return colorize("No " + newProvider.displayName() + " API key configured. " +
+                    "Set one first with 'config-key <key>' after switching, or set " +
+                    newProvider.envVarName() + " env var.", AttributedStyle.YELLOW)
+                    + "\n" + doSwitchProvider(newProvider);
         }
 
+        return doSwitchProvider(newProvider);
+    }
+
+    private String doSwitchProvider(Provider newProvider) {
         modelManager.switchProvider(newProvider);
         router.reinitialize();
 
@@ -149,61 +164,53 @@ public class ConfigCommands {
         sb.append(colorize("    model auto              — Reset to default auto pairing", AttributedStyle.WHITE)).append("\n");
         sb.append(colorize("    model planner <name>    — Set a custom planner model", AttributedStyle.WHITE)).append("\n");
         sb.append(colorize("    model coder <name>      — Set a custom coder model", AttributedStyle.WHITE)).append("\n");
-        sb.append(colorize("    provider [name]         — Switch Mistral / Ollama", AttributedStyle.WHITE));
+        sb.append(colorize("    provider [name]         — Switch provider", AttributedStyle.WHITE));
         return sb.toString();
     }
 
     private String listModels() {
         StringBuilder sb = new StringBuilder("\n");
-        String providerLabel = modelManager.getProvider().displayName();
+        Provider current = modelManager.getProvider();
+        String providerLabel = current.displayName();
 
         if (modelManager.isOllama()) {
             List<ModelOption> installed = modelManager.getInstalledOllamaModels();
             if (!installed.isEmpty()) {
                 sb.append(colorize("  Installed Ollama models (live):", AttributedStyle.CYAN)).append("\n\n");
-                for (ModelOption m : installed) {
-                    String active = isActive(m.id());
-                    sb.append(String.format("    %-30s %s%s\n",
-                            colorize(m.id(), AttributedStyle.GREEN),
-                            m.description(),
-                            colorize(active, AttributedStyle.YELLOW)));
-                }
-                sb.append("\n");
+                appendModelList(sb, installed, 30);
             } else {
                 sb.append(colorize("  Could not reach Ollama. Is it running? (ollama serve)", AttributedStyle.YELLOW)).append("\n\n");
             }
-        } else {
-            List<ModelOption> remote = modelManager.getRemoteMistralModels();
+        } else if (current != Provider.ANTHROPIC) {
+            List<ModelOption> remote = modelManager.getAvailableModels();
             if (!remote.isEmpty()) {
-                sb.append(colorize("  Available Mistral models (live from API):", AttributedStyle.CYAN)).append("\n\n");
-                for (ModelOption m : remote) {
-                    String active = isActive(m.id());
-                    sb.append(String.format("    %-34s %s%s\n",
-                            colorize(m.id(), AttributedStyle.GREEN),
-                            m.description(),
-                            colorize(active, AttributedStyle.YELLOW)));
-                }
-                sb.append("\n");
+                sb.append(colorize("  Available " + providerLabel + " models (live from API):", AttributedStyle.CYAN)).append("\n\n");
+                appendModelList(sb, remote, 34);
             }
         }
 
         List<ModelOption> suggested = modelManager.getSuggestedModels();
         sb.append(colorize("  Recommended for tool calling (" + providerLabel + "):", AttributedStyle.CYAN)).append("\n\n");
-        for (ModelOption m : suggested) {
-            String active = isActive(m.id());
-            sb.append(String.format("    %-30s %s%s\n",
-                    colorize(m.id(), AttributedStyle.GREEN),
-                    m.description(),
-                    colorize(active, AttributedStyle.YELLOW)));
-        }
+        appendModelList(sb, suggested, 30);
 
         sb.append("\n");
         sb.append(colorize("  You can use ANY model name — the lists above are just suggestions.", AttributedStyle.WHITE)).append("\n");
         sb.append(colorize("  Examples:", AttributedStyle.WHITE)).append("\n");
-        sb.append(colorize("    model planner llama3.1       — Set planner independently", AttributedStyle.WHITE)).append("\n");
-        sb.append(colorize("    model coder codestral        — Set coder independently", AttributedStyle.WHITE)).append("\n");
-        sb.append(colorize("    model mistral-small-latest   — Use one model for everything", AttributedStyle.WHITE));
+        sb.append(colorize("    model planner <name>     — Set planner independently", AttributedStyle.WHITE)).append("\n");
+        sb.append(colorize("    model coder <name>       — Set coder independently", AttributedStyle.WHITE)).append("\n");
+        sb.append(colorize("    model <name>             — Use one model for everything", AttributedStyle.WHITE));
         return sb.toString();
+    }
+
+    private void appendModelList(StringBuilder sb, List<ModelOption> models, int nameWidth) {
+        for (ModelOption m : models) {
+            String active = isActive(m.id());
+            sb.append(String.format("    %-" + nameWidth + "s %s%s\n",
+                    colorize(m.id(), AttributedStyle.GREEN),
+                    m.description(),
+                    colorize(active, AttributedStyle.YELLOW)));
+        }
+        sb.append("\n");
     }
 
     private String isActive(String modelId) {
@@ -265,11 +272,16 @@ public class ConfigCommands {
         return result;
     }
 
-    @ShellMethod(key = "config-key", value = "Update or replace your Mistral API key")
-    public String configKey(@ShellOption(help = "Your Mistral API key") String key) {
+    @ShellMethod(key = "config-key", value = "Set API key for the current provider")
+    public String configKey(@ShellOption(help = "Your API key") String key) {
+        Provider current = modelManager.getProvider();
+        if (!current.requiresApiKey()) {
+            return colorize(current.displayName() + " does not require an API key.", AttributedStyle.YELLOW);
+        }
+
         try {
-            apiKeyManager.saveApiKey(key);
-            return colorize("API key updated. Use 'ask' to start using the agent.", AttributedStyle.GREEN);
+            apiKeyManager.saveApiKeyForProvider(current, key);
+            return colorize("API key for " + current.displayName() + " saved. Use 'ask' to start.", AttributedStyle.GREEN);
         } catch (Exception e) {
             return colorize("Error saving key: ", AttributedStyle.RED) + e.getMessage();
         }
@@ -287,11 +299,8 @@ public class ConfigCommands {
 
     @ShellMethod(key = "config-show", value = "Show configuration info (key is masked)")
     public String configShow() {
-        String key = apiKeyManager.getApiKey();
-        String masked = maskApiKey(key);
-
+        Provider current = modelManager.getProvider();
         String mode = modelManager.getCurrentMode();
-        String providerName = modelManager.getProvider().displayName();
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("""
@@ -303,17 +312,22 @@ public class ConfigCommands {
                   Planner:    %s
                   Coder:      %s
                 """,
-                providerName,
+                current.displayName(),
                 mode,
                 modelManager.getPlannerModelName(),
                 modelManager.getCoderModelName()));
 
-        if (modelManager.isMistral()) {
-            sb.append(String.format("  API Key:    %s\n", masked));
-            sb.append(String.format("  Source:     %s\n",
-                    System.getenv("MISTRAL_API_KEY") != null ? "Environment variable" : "~/.eurocoder/config.json"));
-        } else {
+        if (current == Provider.OLLAMA) {
             sb.append(String.format("  Ollama URL: %s\n", apiKeyManager.getOllamaBaseUrl()));
+        } else if (current.requiresApiKey()) {
+            String key = apiKeyManager.getApiKeyForProvider(current);
+            String masked = maskApiKey(key);
+            sb.append(String.format("  API Key:    %s\n", masked));
+            String envVar = current.envVarName();
+            sb.append(String.format("  Source:     %s\n",
+                    envVar != null && System.getenv(envVar) != null
+                            ? "Environment variable (" + envVar + ")"
+                            : "~/.eurocoder/config.json"));
         }
 
         sb.append(String.format("  Config:     %s\n", apiKeyManager.getConfigFilePath()));
@@ -322,9 +336,9 @@ public class ConfigCommands {
 
     @ShellMethod(key = "status", value = "Show the current status of the Sovereign Agent")
     public String status() {
-        boolean ready = !modelManager.isMistral() || apiKeyManager.hasApiKey();
+        Provider current = modelManager.getProvider();
+        boolean ready = !current.requiresApiKey() || apiKeyManager.hasApiKeyForProvider(current);
         String mode = modelManager.getCurrentMode();
-        String providerName = modelManager.getProvider().displayName();
 
         return String.format("""
                 
@@ -353,7 +367,7 @@ public class ConfigCommands {
                     help              — All commands
                 """,
                 ready ? "ONLINE" : "NO API KEY",
-                providerName,
+                current.displayName(),
                 mode,
                 modelManager.getPlannerModelName(),
                 modelManager.getCoderModelName()

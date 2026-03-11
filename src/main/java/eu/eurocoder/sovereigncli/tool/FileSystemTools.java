@@ -1,5 +1,6 @@
 package eu.eurocoder.sovereigncli.tool;
 
+import eu.eurocoder.sovereigncli.rag.RagService;
 import eu.eurocoder.sovereigncli.security.ToolSecurityManager;
 import dev.langchain4j.agent.tool.Tool;
 import org.slf4j.Logger;
@@ -51,18 +52,22 @@ public class FileSystemTools {
     private static final int COMMAND_TIMEOUT_SECONDS = 60;
     private static final int MAX_COMMAND_OUTPUT_LINES = 200;
     private static final int MAX_SEARCH_MATCHES = 100;
+    private static final int SEMANTIC_SEARCH_MAX_RESULTS = 5;
 
     private final ToolSecurityManager securityManager;
+    private final RagService ragService;
     private final Path workingDirectory;
 
     @Autowired
-    public FileSystemTools(ToolSecurityManager securityManager) {
+    public FileSystemTools(ToolSecurityManager securityManager, RagService ragService) {
         this.securityManager = securityManager;
+        this.ragService = ragService;
         this.workingDirectory = null;
     }
 
     public FileSystemTools() {
         this.securityManager = null;
+        this.ragService = null;
         this.workingDirectory = null;
     }
 
@@ -73,6 +78,7 @@ public class FileSystemTools {
      */
     public FileSystemTools(ToolSecurityManager securityManager, Path workingDirectory) {
         this.securityManager = securityManager;
+        this.ragService = null;
         this.workingDirectory = workingDirectory.toAbsolutePath().normalize();
     }
 
@@ -318,6 +324,18 @@ public class FileSystemTools {
         } catch (IOException e) {
             return "Error deleting file: " + e.getMessage();
         }
+    }
+
+    @Tool("Search the project codebase semantically using AI embeddings. " +
+          "Returns relevant code snippets matching the MEANING of your query, even if exact keywords differ. " +
+          "Use this when you need to find code related to a concept, pattern, or functionality. " +
+          "For exact keyword matches, use searchContent instead. " +
+          "Example: semanticSearch('authentication middleware') finds auth-related code.")
+    public String semanticSearch(String query) {
+        if (ragService == null || !ragService.isIndexed()) {
+            return "RAG index not available. The project has not been indexed for semantic search.";
+        }
+        return ragService.retrieveContext(query, SEMANTIC_SEARCH_MAX_RESULTS);
     }
 
     @Tool("Executes a shell command on the local system and returns its output. " +

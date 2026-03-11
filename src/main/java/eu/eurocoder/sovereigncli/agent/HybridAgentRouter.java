@@ -1,5 +1,7 @@
 package eu.eurocoder.sovereigncli.agent;
 
+import eu.eurocoder.sovereigncli.config.RuleManager;
+import eu.eurocoder.sovereigncli.rag.RagService;
 import eu.eurocoder.sovereigncli.tool.FileSystemTools;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.service.AiServices;
@@ -48,6 +50,8 @@ public class HybridAgentRouter {
     private final ModelManager modelManager;
     private final FileSystemTools fileSystemTools;
     private final GitContextProvider gitContextProvider;
+    private final RuleManager ruleManager;
+    private final RagService ragService;
 
     private PlannerAgent planner;
     private CoderAgent coder;
@@ -165,10 +169,13 @@ public class HybridAgentRouter {
     }
 
     public HybridAgentRouter(ModelManager modelManager, FileSystemTools fileSystemTools,
-                             GitContextProvider gitContextProvider) {
+                             GitContextProvider gitContextProvider, RuleManager ruleManager,
+                             RagService ragService) {
         this.modelManager = modelManager;
         this.fileSystemTools = fileSystemTools;
         this.gitContextProvider = gitContextProvider;
+        this.ruleManager = ruleManager;
+        this.ragService = ragService;
     }
 
     private synchronized void ensureInitialized() {
@@ -183,6 +190,7 @@ public class HybridAgentRouter {
         this.coder = null;
         this.directAgent = null;
         this.streamingDirectAgent = null;
+        ragService.invalidateIndex();
         buildAgents();
     }
 
@@ -231,11 +239,19 @@ public class HybridAgentRouter {
         ensureInitialized();
         log.info("HYBRID mode — Planner ({}) analyzing...", modelManager.getPlannerModelName());
 
+        String ragContext = gatherRagContext(userMessage);
         String projectContext = gatherProjectContext();
         String gitContext = gatherGitContext();
+        String rulesContext = gatherRules();
 
-        String enrichedPrompt = String.format("""
+        StringBuilder promptBuilder = new StringBuilder();
+        if (!ragContext.isBlank()) {
+            promptBuilder.append(ragContext).append("\n\n");
+        }
+        promptBuilder.append(String.format("""
                 PROJECT CONTEXT (current directory structure):
+                %s
+                
                 %s
                 
                 %s
@@ -244,7 +260,9 @@ public class HybridAgentRouter {
                 
                 Use your tools (getProjectTree, findFiles, readFile) to explore relevant files \
                 before making your plan. Read ALL files related to this request.
-                """, projectContext, gitContext, userMessage);
+                """, projectContext, gitContext, rulesContext, userMessage));
+
+        String enrichedPrompt = promptBuilder.toString();
 
         String plan = planner.plan(enrichedPrompt);
         log.info("Plan generated. Needs code: {}", plan.contains("[NEEDS_CODE]"));
@@ -284,11 +302,19 @@ public class HybridAgentRouter {
     }
 
     private String enrichDirectMessage(String userMessage) {
+        String ragContext = gatherRagContext(userMessage);
         String projectContext = gatherProjectContext();
         String gitContext = gatherGitContext();
+        String rulesContext = gatherRules();
 
-        return String.format("""
+        StringBuilder sb = new StringBuilder();
+        if (!ragContext.isBlank()) {
+            sb.append(ragContext).append("\n\n");
+        }
+        sb.append(String.format("""
                 PROJECT CONTEXT (current directory structure):
+                %s
+                
                 %s
                 
                 %s
@@ -297,7 +323,9 @@ public class HybridAgentRouter {
                 
                 Remember: you have tools to explore, read, write files, and run commands. \
                 Use them to fulfill the request — do NOT just give advice.
-                """, projectContext, gitContext, userMessage);
+                """, projectContext, gitContext, rulesContext, userMessage));
+
+        return sb.toString();
     }
 
     String gatherProjectContext() {
@@ -314,6 +342,24 @@ public class HybridAgentRouter {
             return gitContextProvider.gatherGitContext(null);
         } catch (Exception e) {
             log.warn("Failed to gather git context: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    String gatherRagContext(String query) {
+        try {
+            return ragService.formatForPrompt(query);
+        } catch (Exception e) {
+            log.warn("Failed to gather RAG context: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    String gatherRules() {
+        try {
+            return ruleManager.formatRulesForPrompt();
+        } catch (Exception e) {
+            log.warn("Failed to gather rules: {}", e.getMessage());
             return "";
         }
     }

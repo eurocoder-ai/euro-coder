@@ -301,6 +301,7 @@ public class ConfigCommands {
 
         sb.append(colorize("  Features behind beta flag:", AttributedStyle.CYAN)).append("\n");
         sb.append(colorize("    - Streaming Responses  (real-time token streaming, progress indicators)", AttributedStyle.WHITE)).append("\n");
+        sb.append(colorize("    - RAG Semantic Search  (auto-indexes project, injects relevant context)", AttributedStyle.WHITE)).append("\n");
         sb.append("\n");
         sb.append(colorize("  Usage:", AttributedStyle.WHITE)).append("\n");
         sb.append(colorize("    beta on    — Enable beta features (they become live immediately)", AttributedStyle.WHITE)).append("\n");
@@ -415,6 +416,8 @@ public class ConfigCommands {
                     model list        — List available models
                     provider [name]   — Show/switch provider
                     beta [on|off]     — Toggle beta features
+                    rag [action]      — Semantic code search (beta)
+                    rules [action]    — Manage agent rules
                     ls [dir]          — List files
                     config-show       — Show config
                     security          — Show security config

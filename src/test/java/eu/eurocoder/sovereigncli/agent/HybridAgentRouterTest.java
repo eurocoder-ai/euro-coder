@@ -1,5 +1,7 @@
 package eu.eurocoder.sovereigncli.agent;
 
+import eu.eurocoder.sovereigncli.config.RuleManager;
+import eu.eurocoder.sovereigncli.rag.RagService;
 import eu.eurocoder.sovereigncli.tool.FileSystemTools;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +34,12 @@ class HybridAgentRouterTest {
     @Mock
     private GitContextProvider gitContextProvider;
 
+    @Mock
+    private RuleManager ruleManager;
+
+    @Mock
+    private RagService ragService;
+
     // ── isComplexTask ────────────────────────────────────────────────
 
     @ParameterizedTest
@@ -56,7 +64,7 @@ class HybridAgentRouterTest {
             "Implement user authentication"
     })
     void isComplexTask_recognizesComplexKeywords(String message) {
-        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider);
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
         assertThat(router.isComplexTask(message)).isTrue();
     }
 
@@ -72,13 +80,13 @@ class HybridAgentRouterTest {
             "Write hello world to test.txt"
     })
     void isComplexTask_recognizesSimpleTasks(String message) {
-        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider);
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
         assertThat(router.isComplexTask(message)).isFalse();
     }
 
     @Test
     void isComplexTask_isCaseInsensitive() {
-        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider);
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
         assertThat(router.isComplexTask("REFACTOR everything")).isTrue();
         assertThat(router.isComplexTask("Please OPTIMIZE this")).isTrue();
         assertThat(router.isComplexTask("ADD TESTS for everything")).isTrue();
@@ -91,7 +99,7 @@ class HybridAgentRouterTest {
         String fakeTree = "├── src/\n│   └── Main.java\n└── pom.xml";
         when(fileSystemTools.getProjectTree(anyString(), anyInt())).thenReturn(fakeTree);
 
-        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider);
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
         String context = router.gatherProjectContext();
 
         assertThat(context).contains("src/");
@@ -104,7 +112,7 @@ class HybridAgentRouterTest {
         when(fileSystemTools.getProjectTree(anyString(), anyInt()))
                 .thenThrow(new RuntimeException("disk error"));
 
-        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider);
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
         String context = router.gatherProjectContext();
 
         assertThat(context).contains("unavailable");
@@ -117,7 +125,7 @@ class HybridAgentRouterTest {
         String fakeGit = "GIT CONTEXT:\n  Branch: main\n  Working tree: clean";
         when(gitContextProvider.gatherGitContext(null)).thenReturn(fakeGit);
 
-        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider);
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
         String context = router.gatherGitContext();
 
         assertThat(context).contains("Branch: main");
@@ -129,8 +137,43 @@ class HybridAgentRouterTest {
         when(gitContextProvider.gatherGitContext(null))
                 .thenThrow(new RuntimeException("git error"));
 
-        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider);
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
         String context = router.gatherGitContext();
+
+        assertThat(context).isEmpty();
+    }
+
+    // ── gatherRagContext ────────────────────────────────────────────
+
+    @Test
+    void gatherRagContext_returnsFormattedContext() {
+        String fakeRag = "RELEVANT CODE CONTEXT:\nAuthService.java — login method";
+        when(ragService.formatForPrompt("how does login work?")).thenReturn(fakeRag);
+
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
+        String context = router.gatherRagContext("how does login work?");
+
+        assertThat(context).contains("AuthService.java");
+        assertThat(context).contains("login method");
+    }
+
+    @Test
+    void gatherRagContext_returnsEmptyWhenNotIndexed() {
+        when(ragService.formatForPrompt(anyString())).thenReturn("");
+
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
+        String context = router.gatherRagContext("some query");
+
+        assertThat(context).isEmpty();
+    }
+
+    @Test
+    void gatherRagContext_handlesRagFailure() {
+        when(ragService.formatForPrompt(anyString()))
+                .thenThrow(new RuntimeException("embedding API down"));
+
+        HybridAgentRouter router = new HybridAgentRouter(modelManager, fileSystemTools, gitContextProvider, ruleManager, ragService);
+        String context = router.gatherRagContext("some query");
 
         assertThat(context).isEmpty();
     }

@@ -6,7 +6,7 @@ A locally-running AI coding agent that gives you **Cursor / Claude Code capabili
 
 | Version | Date | Highlights |
 |---|---|---|
-| **0.4.0** | 2026-03-10 | Multi-provider support (7 providers), beta feature flag system, improved error handling |
+| **0.4.0** | 2026-03-11 | Multi-provider support (7 providers), RAG with multi-hop retrieval, agent rules, beta flag, streaming, error handling |
 | **0.3.0** | 2026-02-19 | Benchmarking framework (12 tasks, raw + agent modes, result persistence) |
 | **0.2.0** | 2026-02-18 | Security fixes, SIGINT handling, package rename to `eu.eurocoder` |
 | **0.1.0** | 2026-02-17 | Initial release — hybrid planner/coder, Mistral + Ollama, security hardening |
@@ -76,19 +76,19 @@ Tool Invocation
      ▼
 ┌──────────────────┐     Path outside project?    ┌─────────┐
 │  Sandbox Check   │ ──── yes ──────────────────► │ BLOCKED │
-│ (directory scope)│                               └─────────┘
+│ (directory scope)│                              └─────────┘
 └────────┬─────────┘
          │ path OK
          ▼
 ┌──────────────────┐     Destructive operation?   ┌─────────────────┐
 │ Permission Check │ ──── yes ──────────────────► │ Prompt User     │
-│ (trust level)    │                               │ Allow? [y/N]    │
-└────────┬─────────┘                               └────────┬────────┘
-         │ allowed                                          │
-         ▼                                                  ▼
+│ (trust level)    │                              │ Allow? [y/N]    │
+└────────┬─────────┘                              └────────┬────────┘
+         │ allowed                                         │
+         ▼                                                 ▼
 ┌──────────────────┐                              ┌─────────────────┐
 │   Audit Log      │ ◄────────────────────────────│ Record Decision │
-│ (JSON-Lines)     │                               └─────────────────┘
+│ (JSON-Lines)     │                              └─────────────────┘
 └────────┬─────────┘
          │
          ▼
@@ -191,6 +191,7 @@ euro-coder:> beta
 
   Currently behind beta flag:
     - Streaming Responses  (real-time token streaming, progress indicators)
+    - RAG Semantic Search  (auto-indexes project, injects relevant context)
 
   Usage:
     beta on    — Enable beta features
@@ -203,6 +204,68 @@ Enable beta to access experimental features:
 euro-coder:> beta on
 Beta features ENABLED
   Experimental features are now active. Use at your own risk.
+```
+
+### RAG — Semantic Code Search
+
+Inspired by [Recursive Language Models](https://arxiv.org/abs/2512.24601) (Zhang et al., 2026), EuroCoder treats your codebase as an **external environment** rather than stuffing it into the prompt. When beta is enabled:
+
+1. **Semantic indexing** — project files are embedded and stored in-memory on first use
+2. **Multi-hop context injection** — the most relevant code chunks are found first, then their type/class references are extracted and used for a second retrieval pass, pulling in transitive dependencies automatically (e.g. query about "login" → finds `AuthService` → second hop finds `UserRepository` and `SessionStore`)
+3. **`semanticSearch` tool** — the agent can query for additional context during execution
+4. **Automatic deduplication** — second-hop results skip files already found in the first hop
+
+This mirrors the RLM principle of "selective context access" with one level of recursive exploration, while keeping token usage optimized within a strict budget (~4000 char cap).
+
+```
+euro-coder:> rag
+
+  RAG — Semantic Code Search
+
+  Provider:   OpenAI
+  Embeddings: supported
+  Status:     INDEXED
+  Files:      42
+  Chunks:     187
+
+  Commands:
+    rag index              — Build/rebuild semantic index
+    rag search <query>     — Search codebase by meaning
+    rag clear              — Clear the index
+```
+
+**Supported embedding providers:** Mistral (`mistral-embed`), Ollama (`nomic-embed-text`), OpenAI (`text-embedding-3-small`), Google Gemini (`text-embedding-004`). Anthropic, xAI, and DeepSeek do not currently offer embedding APIs.
+
+### Agent Rules
+
+Define persistent instructions for the AI agent — like Cursor rules. Rules are `.md` files in `.eurocoder/rules/` within your project directory. They are injected into every agent prompt automatically.
+
+```
+euro-coder:> rules add coding-style
+Rule 'coding-style' created.
+  Edit it at: .eurocoder/rules/coding-style.md
+  The rule is active immediately — the agent reads it on every request.
+```
+
+Example rule (`.eurocoder/rules/coding-style.md`):
+
+```markdown
+# coding-style
+
+- Always use functional programming with streams instead of loops
+- Extract constants for magic numbers and strings
+- Follow Spring Boot conventions
+- Write tests for every new feature
+```
+
+Manage rules:
+
+```
+euro-coder:> rules              — List all active rules
+euro-coder:> rules show <name>  — Show a rule's content
+euro-coder:> rules add <name>   — Create a new rule template
+euro-coder:> rules remove <name> — Remove a rule
+euro-coder:> rules path         — Show the rules directory
 ```
 
 ### Agent Tools
@@ -324,6 +387,16 @@ euro-coder:> provider ollama
 | `benchmark report` | Show the latest benchmark run results |
 | `benchmark compare` | Compare results across all saved benchmark runs |
 
+### Rules
+
+| Command | Description |
+|---|---|
+| `rules` | List all active agent rules |
+| `rules show <name>` | Show a rule's full content |
+| `rules add <name>` | Create a new rule template file |
+| `rules remove <name>` | Remove a rule |
+| `rules path` | Show the rules directory path |
+
 ### Configuration
 
 | Command | Description |
@@ -359,6 +432,7 @@ sovereign-cli/
 │   │   └── BenchmarkReport.java            # Console tables + JSON persistence
 │   ├── config/
 │   │   ├── ApiKeyManager.java              # Config persistence (~/.eurocoder/config.json)
+│   │   ├── RuleManager.java                # Agent rules (.eurocoder/rules/*.md)
 │   │   └── TerminalConfig.java             # SIGINT handler for graceful Ctrl+C
 │   ├── security/
 │   │   ├── ToolSecurityManager.java        # Central security orchestrator
@@ -368,13 +442,17 @@ sovereign-cli/
 │   │   └── TrustLevel.java                 # Trust level enum
 │   ├── shell/
 │   │   ├── AgentCommands.java              # ask, plan, code, ls commands
-│   │   ├── ConfigCommands.java             # provider, model, config commands
+│   │   ├── ConfigCommands.java             # provider, model, config, beta commands
+│   │   ├── RagCommands.java                # rag index/search/clear/status
+│   │   ├── RulesCommands.java              # rules list/show/add/remove
 │   │   ├── SecurityCommands.java           # trust, sandbox, audit, security commands
 │   │   ├── BenchmarkCommands.java          # benchmark list/run/report/compare
 │   │   ├── FirstRunSetup.java              # Interactive setup wizard
 │   │   └── SovereignPromptProvider.java    # Custom shell prompt (euro-coder:>)
+│   ├── rag/
+│   │   └── RagService.java                 # Semantic indexing + retrieval (RLM-inspired)
 │   └── tool/
-│       └── FileSystemTools.java            # Agent tools: file I/O, shell, search
+│       └── FileSystemTools.java            # Agent tools: file I/O, shell, search, semanticSearch
 ├── src/main/resources/
 │   ├── application.properties              # App configuration
 │   ├── banner.txt                          # Custom startup banner
@@ -395,7 +473,10 @@ sovereign-cli/
 │   │   ├── BenchmarkReportTest.java        # Report formatting + persistence (8 tests)
 │   │   └── BenchmarkResultTest.java        # Result record factory tests (3 tests)
 │   ├── config/
-│   │   └── ApiKeyManagerTest.java          # Config persistence tests
+│   │   ├── ApiKeyManagerTest.java          # Config persistence tests
+│   │   └── RuleManagerTest.java            # Rule loading/saving tests
+│   ├── rag/
+│   │   └── RagServiceTest.java             # RAG indexing/retrieval tests
 │   ├── security/
 │   │   ├── TrustLevelTest.java            # Trust level enum tests
 │   │   ├── AuditLogTest.java              # Audit read/write/clear tests
@@ -479,7 +560,7 @@ Apple Silicon Macs (M1/M2/M3/M4) are particularly well-suited due to unified mem
 
 ## Changelog
 
-### 0.4.0-SNAPSHOT (2026-03-10)
+### 0.4.0-SNAPSHOT (2026-03-11)
 
 **New Features**
 - Multi-provider support: 7 AI providers — Mistral, Ollama, OpenAI, Anthropic, Google Gemini, xAI (Grok), DeepSeek
@@ -487,8 +568,18 @@ Apple Silicon Macs (M1/M2/M3/M4) are particularly well-suited due to unified mem
   - Live model listing from provider APIs via `model list`
   - Per-provider API key storage in `~/.eurocoder/config.json` with env var overrides
   - xAI and DeepSeek use OpenAI-compatible protocol (shared LangChain4j integration)
+- RAG semantic code search (beta): inspired by [Recursive Language Models](https://arxiv.org/abs/2512.24601)
+  - Auto-indexes project files using provider embedding models on first use
+  - **Multi-hop retrieval**: first hop finds directly relevant chunks, then extracts type/class references and performs a second retrieval pass for transitive dependencies (e.g. query about "login" → finds `AuthService` → second hop finds `UserRepository`)
+  - Automatic deduplication between hops, strict token budget (~4000 chars)
+  - `semanticSearch` agent tool for iterative context refinement during execution
+  - Supports Mistral, Ollama, OpenAI, Google Gemini embeddings
+  - Shell commands: `rag`, `rag index`, `rag search <query>`, `rag clear`
+- Agent rules: persistent instructions for the AI agent, stored in `.eurocoder/rules/*.md`
+  - Rules are injected into every agent prompt automatically (like Cursor rules)
+  - Shell commands: `rules`, `rules add`, `rules show`, `rules remove`
 - Beta feature flag system: `beta on` / `beta off` to enable experimental features
-  - Streaming responses (M4) is the first feature behind beta flag
+  - Streaming responses and RAG semantic search are behind beta flag
 - Updated first-run setup wizard with all 7 providers
 - `config-key` now sets the API key for the currently active provider
 - `provider` command shows all available providers with descriptions

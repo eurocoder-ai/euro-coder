@@ -7,6 +7,7 @@ import eu.eurocoder.sovereigncli.agent.HybridAgentRouter;
 import eu.eurocoder.sovereigncli.agent.HybridResult;
 import eu.eurocoder.sovereigncli.agent.ModelManager;
 import eu.eurocoder.sovereigncli.config.ApiKeyManager;
+import eu.eurocoder.sovereigncli.rag.RagService;
 import eu.eurocoder.sovereigncli.security.PermissionService;
 import dev.langchain4j.service.TokenStream;
 import org.jline.utils.AttributedString;
@@ -27,14 +28,17 @@ public class AgentCommands {
     private final ModelManager modelManager;
     private final PermissionService permissionService;
     private final ApiKeyManager apiKeyManager;
+    private final RagService ragService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AgentCommands(HybridAgentRouter router, ModelManager modelManager,
-                         PermissionService permissionService, ApiKeyManager apiKeyManager) {
+                         PermissionService permissionService, ApiKeyManager apiKeyManager,
+                         RagService ragService) {
         this.router = router;
         this.modelManager = modelManager;
         this.permissionService = permissionService;
         this.apiKeyManager = apiKeyManager;
+        this.ragService = ragService;
     }
 
     @ShellMethod(key = "ask", value = "Ask the Sovereign Agent (auto-routes between Planner and Coder)")
@@ -43,6 +47,7 @@ public class AgentCommands {
         System.out.println();
 
         if (apiKeyManager.isBetaEnabled()) {
+            autoIndexRagIfNeeded();
             if (modelManager.isAutoMode() && router.isComplexTask(prompt)) {
                 return askHybrid(prompt);
             }
@@ -84,6 +89,7 @@ public class AgentCommands {
         System.out.println();
 
         if (apiKeyManager.isBetaEnabled()) {
+            autoIndexRagIfNeeded();
             System.out.println(colorize(modelManager.getCoderModelName() + " generating code (streaming)...", AttributedStyle.CYAN));
             System.out.println();
             return streamResponse(prompt);
@@ -111,6 +117,17 @@ public class AgentCommands {
         } catch (Exception e) {
             return colorize("Error: ", AttributedStyle.RED)
                     + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
+        }
+    }
+
+    // ── RAG auto-indexing ─────────────────────────────────────────────
+
+    private void autoIndexRagIfNeeded() {
+        if (!ragService.isIndexed() && ragService.supportsCurrentProvider()) {
+            System.out.println(colorize("  ⟳ Building semantic index...", AttributedStyle.CYAN));
+            String result = ragService.indexProject();
+            System.out.println(colorize("  " + result, AttributedStyle.CYAN));
+            System.out.println();
         }
     }
 

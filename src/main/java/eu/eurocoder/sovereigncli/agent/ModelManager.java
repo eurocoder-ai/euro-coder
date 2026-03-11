@@ -7,13 +7,18 @@ import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.googleai.GoogleAiEmbeddingModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
 import dev.langchain4j.model.mistralai.MistralAiChatModel;
+import dev.langchain4j.model.mistralai.MistralAiEmbeddingModel;
 import dev.langchain4j.model.mistralai.MistralAiStreamingChatModel;
 import dev.langchain4j.model.ollama.OllamaChatModel;
+import dev.langchain4j.model.ollama.OllamaEmbeddingModel;
 import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +62,15 @@ public class ModelManager {
     private static final String OPENAI_MODELS_PATH = "/models";
     private static final String GEMINI_MODELS_PATH = "/v1beta/models";
     private static final String AUTO_MODE = "auto";
+
+    // ── Default embedding models (providers without entry don't support RAG) ──
+
+    private static final Map<Provider, String> DEFAULT_EMBEDDING_MODEL = Map.of(
+            Provider.MISTRAL, "mistral-embed",
+            Provider.OLLAMA, "nomic-embed-text",
+            Provider.OPENAI, "text-embedding-3-small",
+            Provider.GOOGLE_GEMINI, "text-embedding-004"
+    );
 
     // ── Default models per provider ─────────────────────────────────────
 
@@ -211,6 +225,7 @@ public class ModelManager {
     private ChatModel plannerModel;
     private ChatModel coderModel;
     private StreamingChatModel streamingCoderModel;
+    private EmbeddingModel embeddingModel;
 
     public ModelManager(ApiKeyManager apiKeyManager) {
         this.apiKeyManager = apiKeyManager;
@@ -252,6 +267,13 @@ public class ModelManager {
             streamingCoderModel = buildStreamingModel(name, coderTemperature);
         }
         return streamingCoderModel;
+    }
+
+    public synchronized EmbeddingModel getEmbeddingModel() {
+        if (embeddingModel == null) {
+            embeddingModel = buildEmbeddingModel();
+        }
+        return embeddingModel;
     }
 
     public synchronized void switchMode(String newMode) {
@@ -308,6 +330,7 @@ public class ModelManager {
         this.plannerModel = null;
         this.coderModel = null;
         this.streamingCoderModel = null;
+        this.embeddingModel = null;
 
         try {
             apiKeyManager.saveProvider(newProvider.id());
@@ -579,6 +602,37 @@ public class ModelManager {
                     .temperature(temperature)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .build();
+        };
+    }
+
+    // ── Embedding model building ──────────────────────────────────────
+
+    private EmbeddingModel buildEmbeddingModel() {
+        String modelName = DEFAULT_EMBEDDING_MODEL.get(provider);
+        if (modelName == null) {
+            log.info("Provider {} does not support embedding models for RAG", provider.displayName());
+            return null;
+        }
+
+        log.info("Building embedding model: {} (provider={})", modelName, provider.id());
+        return switch (provider) {
+            case MISTRAL -> MistralAiEmbeddingModel.builder()
+                    .apiKey(requireApiKey("Mistral"))
+                    .modelName(modelName)
+                    .build();
+            case OLLAMA -> OllamaEmbeddingModel.builder()
+                    .baseUrl(apiKeyManager.getOllamaBaseUrl())
+                    .modelName(modelName)
+                    .build();
+            case OPENAI -> OpenAiEmbeddingModel.builder()
+                    .apiKey(requireApiKey("OpenAI"))
+                    .modelName(modelName)
+                    .build();
+            case GOOGLE_GEMINI -> GoogleAiEmbeddingModel.builder()
+                    .apiKey(requireApiKey("Google Gemini"))
+                    .modelName(modelName)
+                    .build();
+            default -> null;
         };
     }
 

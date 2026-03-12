@@ -1,6 +1,13 @@
 # EuroCoder — Sovereign AI Developer Agent
 
+[![CI](https://github.com/eurocoder-ai/euro-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/eurocoder-ai/euro-coder/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/eurocoder-ai/euro-coder?label=download&color=brightgreen)](https://github.com/eurocoder-ai/euro-coder/releases/latest)
+[![License: EUPL-1.2](https://img.shields.io/badge/license-EUPL--1.2-blue)](https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12)
+[![Java 21](https://img.shields.io/badge/java-21-orange)](https://adoptium.net/)
+
 A locally-running AI coding agent that gives you **Cursor / Claude Code capabilities** with full control over your AI provider. Supports **7 providers** — Mistral, Ollama, OpenAI, Anthropic, Google Gemini, xAI (Grok), and DeepSeek — with full offline support via Ollama.
+
+**[Download latest release](https://github.com/eurocoder-ai/euro-coder/releases/latest)** — requires Java 21+. Run with `java -jar euro-coder-*.jar`.
 
 ## Changelog
 

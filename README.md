@@ -349,8 +349,13 @@ euro-coder:> provider ollama
 | Command | Description |
 |---|---|
 | `ask <prompt>` | Ask the agent anything — auto-routes between planner and coder |
+| `ask` | Enter interactive multiline prompt (submit with empty line, cancel with Ctrl+C) |
 | `plan <prompt>` | Force hybrid mode: planner analyzes, then coder executes |
+| `plan` | Enter interactive multiline prompt for hybrid planning |
 | `code <description>` | Direct code generation (fast, single model) |
+| `code` | Enter interactive multiline prompt for code generation |
+
+**Multiline support:** All agent commands accept multiline input. You can paste multiline text (e.g. markdown lists) directly after the command — newlines are preserved and sent as a single prompt. Alternatively, type the command with no arguments to enter an interactive multiline editor.
 
 ### Model Management
 
@@ -440,7 +445,8 @@ sovereign-cli/
 │   ├── config/
 │   │   ├── ApiKeyManager.java              # Config persistence (~/.eurocoder/config.json)
 │   │   ├── RuleManager.java                # Agent rules (.eurocoder/rules/*.md)
-│   │   └── TerminalConfig.java             # SIGINT handler for graceful Ctrl+C
+│   │   ├── TerminalConfig.java             # SIGINT, parser, bracketed paste config
+│   │   └── MultilineAwareParser.java       # JLine parser preserving newlines in pastes
 │   ├── security/
 │   │   ├── ToolSecurityManager.java        # Central security orchestrator
 │   │   ├── PermissionService.java          # User approval prompts
@@ -449,6 +455,8 @@ sovereign-cli/
 │   │   └── TrustLevel.java                 # Trust level enum
 │   ├── shell/
 │   │   ├── AgentCommands.java              # ask, plan, code, ls commands
+│   │   ├── MarkdownRenderer.java           # Markdown-to-ANSI terminal rendering
+│   │   ├── MultilineInputReader.java       # Multiline prompt input (JLine)
 │   │   ├── ConfigCommands.java             # provider, model, config, beta commands
 │   │   ├── RagCommands.java                # rag index/search/clear/status
 │   │   ├── RulesCommands.java              # rules list/show/add/remove
@@ -481,9 +489,13 @@ sovereign-cli/
 │   │   └── BenchmarkResultTest.java        # Result record factory tests (3 tests)
 │   ├── config/
 │   │   ├── ApiKeyManagerTest.java          # Config persistence tests
-│   │   └── RuleManagerTest.java            # Rule loading/saving tests
+│   │   ├── RuleManagerTest.java            # Rule loading/saving tests
+│   │   └── MultilineAwareParserTest.java  # Multiline parser tests (12 tests)
 │   ├── rag/
 │   │   └── RagServiceTest.java             # RAG indexing/retrieval tests
+│   ├── shell/
+│   │   ├── MarkdownRendererTest.java      # Markdown rendering tests (27 tests)
+│   │   └── MultilineInputReaderTest.java  # Multiline input tests (7 tests)
 │   ├── security/
 │   │   ├── TrustLevelTest.java            # Trust level enum tests
 │   │   ├── AuditLogTest.java              # Audit read/write/clear tests

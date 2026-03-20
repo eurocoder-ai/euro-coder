@@ -1,22 +1,18 @@
 package eu.eurocoder.sovereigncli.config;
 
+import org.jline.reader.LineReader;
+import org.jline.reader.Parser;
 import org.jline.terminal.Terminal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Configures the JLine terminal to handle Ctrl+C (SIGINT) gracefully.
- * <p>
- * Without this, Ctrl+C at the shell prompt kills the JVM — especially
- * when running under {@code mvn spring-boot:run} where Maven intercepts
- * SIGINT and sends SIGTERM to the child process.
- * <p>
- * JLine's {@code LineReader.readLine()} temporarily installs its own
- * SIGINT handler that throws {@code UserInterruptException}, so interactive
- * prompts are unaffected by this default handler.
+ * Configures the JLine terminal: SIGINT handling, multiline-aware parser,
+ * and bracketed paste support for pasting multiline prompts.
  */
 @Configuration
 public class TerminalConfig {
@@ -24,12 +20,23 @@ public class TerminalConfig {
     private static final Logger log = LoggerFactory.getLogger(TerminalConfig.class);
 
     @Bean
-    public ApplicationRunner configureTerminalSignals(Terminal terminal) {
+    public Parser jlineParser() {
+        return new MultilineAwareParser();
+    }
+
+    @Bean
+    public ApplicationRunner configureTerminal(Terminal terminal,
+                                               @Autowired(required = false) LineReader lineReader) {
         return args -> {
             terminal.handle(Terminal.Signal.INT, signal ->
                     log.debug("Ctrl+C caught — ignoring (use 'exit' to quit)")
             );
             log.debug("SIGINT handler registered on terminal");
+
+            if (lineReader != null) {
+                lineReader.setOpt(LineReader.Option.BRACKETED_PASTE);
+                log.debug("Bracketed paste enabled on LineReader");
+            }
         };
     }
 }

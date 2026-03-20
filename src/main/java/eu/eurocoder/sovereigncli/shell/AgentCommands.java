@@ -29,45 +29,58 @@ public class AgentCommands {
     private final PermissionService permissionService;
     private final ApiKeyManager apiKeyManager;
     private final RagService ragService;
+    private final MultilineInputReader multilineInputReader;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AgentCommands(HybridAgentRouter router, ModelManager modelManager,
                          PermissionService permissionService, ApiKeyManager apiKeyManager,
-                         RagService ragService) {
+                         RagService ragService, MultilineInputReader multilineInputReader) {
         this.router = router;
         this.modelManager = modelManager;
         this.permissionService = permissionService;
         this.apiKeyManager = apiKeyManager;
         this.ragService = ragService;
+        this.multilineInputReader = multilineInputReader;
     }
 
     @ShellMethod(key = "ask", value = "Ask the Sovereign Agent (auto-routes between Planner and Coder)")
-    public String ask(@ShellOption(defaultValue = "Help me understand what you can do") String prompt) {
+    public String ask(@ShellOption(defaultValue = ShellOption.NONE) String prompt) {
         permissionService.clearInterrupt();
         System.out.println();
+
+        String resolvedPrompt = resolvePrompt(prompt, "ask");
+        if (resolvedPrompt == null) {
+            return colorize("Cancelled.", AttributedStyle.YELLOW);
+        }
 
         if (apiKeyManager.isBetaEnabled()) {
             autoIndexRagIfNeeded();
-            if (modelManager.isAutoMode() && router.isComplexTask(prompt)) {
-                return askHybrid(prompt);
+            if (modelManager.isAutoMode() && router.isComplexTask(resolvedPrompt)) {
+                return askHybrid(resolvedPrompt);
             }
-            return askStreaming(prompt);
+            return askStreaming(resolvedPrompt);
         }
 
-        return askStandard(prompt);
+        return askStandard(resolvedPrompt);
     }
 
     @ShellMethod(key = "plan", value = "Force hybrid mode: Planner analyzes, then Coder executes")
-    public String plan(@ShellOption(defaultValue = "Help me") String prompt) {
+    public String plan(@ShellOption(defaultValue = ShellOption.NONE) String prompt) {
         permissionService.clearInterrupt();
         System.out.println();
+
+        String resolvedPrompt = resolvePrompt(prompt, "plan");
+        if (resolvedPrompt == null) {
+            return colorize("Cancelled.", AttributedStyle.YELLOW);
+        }
+
         System.out.println(colorize("HYBRID mode — Planner (" + modelManager.getPlannerModelName()
                 + ") -> Coder (" + modelManager.getCoderModelName() + ")", AttributedStyle.CYAN));
         System.out.println();
 
         try {
-            HybridResult result = router.chatHybrid(prompt);
-            return colorize("Agent: ", AttributedStyle.GREEN) + result.toDisplayString();
+            HybridResult result = router.chatHybrid(resolvedPrompt);
+            return formatAgentResponse(result.toDisplayString());
         } catch (Exception e) {
             return colorize("Error: ", AttributedStyle.RED)
                     + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
@@ -76,12 +89,17 @@ public class AgentCommands {
 
     @ShellMethod(key = "code", value = "Generate code directly (uses coder model for speed)")
     public String code(
-            @ShellOption(help = "What to build") String description,
+            @ShellOption(defaultValue = ShellOption.NONE, help = "What to build") String description,
             @ShellOption(defaultValue = "", help = "Target file path") String file) {
 
         permissionService.clearInterrupt();
 
-        String prompt = "Write code for: " + description;
+        String resolvedDescription = resolvePrompt(description, "code");
+        if (resolvedDescription == null) {
+            return colorize("Cancelled.", AttributedStyle.YELLOW);
+        }
+
+        String prompt = "Write code for: " + resolvedDescription;
         if (!file.isBlank()) {
             prompt += ". Save it to the file: " + file;
         }
@@ -100,7 +118,7 @@ public class AgentCommands {
 
         try {
             String response = router.chatDirect(prompt);
-            return colorize("Agent: ", AttributedStyle.GREEN) + response;
+            return formatAgentResponse(response);
         } catch (Exception e) {
             return colorize("Error: ", AttributedStyle.RED)
                     + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
@@ -118,6 +136,22 @@ public class AgentCommands {
             return colorize("Error: ", AttributedStyle.RED)
                     + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
         }
+    }
+
+    // ── Response formatting ─────────────────────────────────────────
+
+    private String formatAgentResponse(String rawMarkdown) {
+        return colorize("Agent: ", AttributedStyle.GREEN)
+                + new MarkdownRenderer().render(rawMarkdown);
+    }
+
+    // ── Multiline prompt resolution ─────────────────────────────────
+
+    private String resolvePrompt(String prompt, String commandName) {
+        if (prompt != null && !prompt.isBlank()) {
+            return prompt;
+        }
+        return multilineInputReader.read(commandName);
     }
 
     // ── RAG auto-indexing ─────────────────────────────────────────────
@@ -147,7 +181,7 @@ public class AgentCommands {
             }
             System.out.println();
 
-            return colorize("Agent: ", AttributedStyle.GREEN) + result.toDisplayString();
+            return formatAgentResponse(result.toDisplayString());
         } catch (Exception e) {
             return colorize("Error: ", AttributedStyle.RED)
                     + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
@@ -162,7 +196,7 @@ public class AgentCommands {
 
         try {
             HybridResult result = router.chatHybrid(prompt);
-            return colorize("Agent: ", AttributedStyle.GREEN) + result.toDisplayString();
+            return formatAgentResponse(result.toDisplayString());
         } catch (Exception e) {
             return colorize("Error: ", AttributedStyle.RED)
                     + AgentExceptionHandler.friendlyMessage(e, modelManager.getProvider());
@@ -181,6 +215,8 @@ public class AgentCommands {
         System.out.print(colorize("Agent: ", AttributedStyle.GREEN));
         System.out.flush();
 
+        MarkdownRenderer md = new MarkdownRenderer();
+        StringBuilder lineBuffer = new StringBuilder();
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> errorRef = new AtomicReference<>();
 
@@ -188,10 +224,11 @@ public class AgentCommands {
             TokenStream stream = router.chatDirectStreaming(prompt);
             stream
                     .onPartialResponse(token -> {
-                        System.out.print(token);
-                        System.out.flush();
+                        lineBuffer.append(token);
+                        flushCompleteLines(lineBuffer, md);
                     })
                     .onToolExecuted(execution -> {
+                        flushRemainder(lineBuffer, md);
                         String name = execution.request().name();
                         String args = formatToolArgs(execution.request().arguments());
                         System.out.println();
@@ -201,6 +238,7 @@ public class AgentCommands {
                         System.out.flush();
                     })
                     .onCompleteResponse(response -> {
+                        flushRemainder(lineBuffer, md);
                         System.out.println();
                         latch.countDown();
                     })
@@ -226,6 +264,24 @@ public class AgentCommands {
             return colorize("\nError: ", AttributedStyle.RED) + errorRef.get();
         }
         return "";
+    }
+
+    private void flushCompleteLines(StringBuilder buffer, MarkdownRenderer md) {
+        int newlineIdx;
+        while ((newlineIdx = buffer.indexOf("\n")) >= 0) {
+            String line = buffer.substring(0, newlineIdx);
+            buffer.delete(0, newlineIdx + 1);
+            System.out.println(md.renderLine(line));
+        }
+        System.out.flush();
+    }
+
+    private void flushRemainder(StringBuilder buffer, MarkdownRenderer md) {
+        if (!buffer.isEmpty()) {
+            System.out.print(md.renderLine(buffer.toString()));
+            buffer.setLength(0);
+            System.out.flush();
+        }
     }
 
     private String formatToolArgs(String jsonArgs) {

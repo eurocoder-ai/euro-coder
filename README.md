@@ -13,6 +13,7 @@ A locally-running AI coding agent that gives you **Cursor / Claude Code capabili
 
 | Version | Date | Highlights |
 |---|---|---|
+| **0.4.1** | 2026-03-21 | Multiline prompt support (paste + interactive), markdown rendering for agent responses |
 | **0.4.0** | 2026-03-11 | Multi-provider support (7 providers), RAG with multi-hop retrieval, agent rules, beta flag, streaming, error handling |
 | **0.3.0** | 2026-02-19 | Benchmarking framework (12 tasks, raw + agent modes, result persistence) |
 | **0.2.0** | 2026-02-18 | Security fixes, SIGINT handling, package rename to `eu.eurocoder` |
@@ -311,7 +312,7 @@ cd eurocoder
 ./mvnw clean package -DskipTests
 
 # Run
-java -jar target/sovereign-agent-0.4.0-SNAPSHOT.jar
+java -jar target/sovereign-agent-0.4.1-SNAPSHOT.jar
 ```
 
 > **Note:** Always use `java -jar` to run EuroCoder. Running via `mvn spring-boot:run` causes Ctrl+C to kill the entire process because Maven intercepts the signal before JLine can handle it.
@@ -578,6 +579,21 @@ Apple Silicon Macs (M1/M2/M3/M4) are particularly well-suited due to unified mem
 | M9 | Native Packaging — Homebrew, GraalVM native binary, Docker image | Planned |
 
 ## Changelog
+
+### 0.4.1-SNAPSHOT (2026-03-21)
+
+**New Features**
+- Multiline prompt support for `ask`, `plan`, and `code` commands
+  - **Paste support**: paste multiline text (e.g. markdown lists) directly after the command — newlines are preserved via a custom JLine parser with bracketed paste
+  - **Interactive mode**: type the command with no arguments to enter a multiline editor (submit with empty line, cancel with Ctrl+C)
+- Markdown rendering for agent responses — raw markdown is now converted to styled ANSI terminal output
+  - Headers (`#`, `##`, `###`) rendered as bold cyan
+  - Bold (`**text**`, `__text__`) rendered with ANSI bold
+  - Inline code (`` `code` ``) rendered in yellow
+  - Fenced code blocks (` ``` `) rendered in green with language label
+  - Bullet and numbered lists with styled markers
+  - Blockquotes with `│` bar, horizontal rules with `─` line
+  - Streaming responses render line-by-line with full markdown support
 
 ### 0.4.0-SNAPSHOT (2026-03-11)
 

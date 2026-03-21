@@ -7,7 +7,7 @@
 
 A locally-running AI coding agent that gives you **Cursor / Claude Code capabilities** with full control over your AI provider. Supports **7 providers** — Mistral, Ollama, OpenAI, Anthropic, Google Gemini, xAI (Grok), and DeepSeek — with full offline support via Ollama.
 
-**[Download latest release](https://github.com/eurocoder-ai/euro-coder/releases/latest)** — requires Java 21+. Run with `java -jar euro-coder-*.jar`.
+**[Download latest release](https://github.com/eurocoder-ai/euro-coder/releases/latest)** — native binaries for Linux, macOS, and Windows (no Java required), or JAR for Java 21+.
 
 ## Changelog
 
@@ -297,12 +297,25 @@ The AI agent can interact with your system through:
 
 ## Quick Start
 
-### Prerequisites
+### Download & Run (native — no Java required)
 
-- **Java 21+** ([Eclipse Temurin](https://adoptium.net/) or any OpenJDK distribution)
-- **API key** for your chosen provider — or Ollama for offline mode
+Download the archive for your platform from the [latest release](https://github.com/eurocoder-ai/euro-coder/releases/latest):
 
-### Build & Run
+| Platform | Archive | Run |
+|---|---|---|
+| **Linux x64** | `euro-coder-*-linux-x64.tar.gz` | `tar xzf euro-coder-*-linux-x64.tar.gz && ./euro-coder/bin/euro-coder` |
+| **macOS arm64** | `euro-coder-*-macos-arm64.tar.gz` | `tar xzf euro-coder-*-macos-arm64.tar.gz && ./euro-coder/bin/euro-coder` |
+| **Windows x64** | `euro-coder-*-windows-x64.zip` | Extract, then run `euro-coder\euro-coder.exe` |
+
+Each archive is self-contained — it bundles a stripped JRE so you don't need Java installed.
+
+### Download & Run (JAR — requires Java 21+)
+
+```bash
+java -jar euro-coder-*.jar
+```
+
+### Build from source
 
 ```bash
 git clone https://codeberg.org/euro-coder/eurocoder.git
@@ -576,7 +589,7 @@ Apple Silicon Macs (M1/M2/M3/M4) are particularly well-suited due to unified mem
 | M6 | Local RAG — embed and search your codebase locally | Planned |
 | M7 | IDE Integration — VS Code extension and IntelliJ plugin | Planned |
 | M8 | Conversation Persistence — save and resume coding sessions | Planned |
-| M9 | Native Packaging — Homebrew, GraalVM native binary, Docker image | Planned |
+| M9 | Native Packaging — jpackage binaries for Linux, macOS, Windows | ✓ Done (v0.5.0) |
 
 ## Changelog
 

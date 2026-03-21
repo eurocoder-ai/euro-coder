@@ -8,8 +8,21 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            suffix: linux-x64
+            archive: tar.gz
+          - os: macos-latest
+            suffix: macos-arm64
+            archive: tar.gz
+          - os: windows-latest
+            suffix: windows-x64
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +36,7 @@ jobs:
 
       - name: Extract version from tag
         id: version
+        shell: bash
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set Maven version
@@ -31,11 +45,68 @@ jobs:
       - name: Build JAR
         run: mvn -B package -DskipTests --no-transfer-progress
 
+      - name: Create native app image with jpackage
+        shell: bash
+        run: |
+          JAR_FILE=$(ls target/sovereign-agent-*.jar | grep -v original | head -1)
+          jpackage \
+            --type app-image \
+            --name euro-coder \
+            --input target \
+            --main-jar "$(basename "$JAR_FILE")" \
+            --java-options "-Dspring.shell.interactive.enabled=true" \
+            --dest target/native
+
+      - name: Archive native image (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          cd target/native
+          tar -czf ../euro-coder-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}.tar.gz euro-coder
+
+      - name: Archive native image (zip)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          cd target/native
+          7z a ../euro-coder-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}.zip euro-coder
+
+      - name: Upload native archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.suffix }}
+          path: target/euro-coder-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}.*
+
+      - name: Upload JAR (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar
+          path: target/sovereign-agent-${{ steps.version.outputs.VERSION }}.jar
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
       - name: Rename JAR for release
-        run: cp target/sovereign-agent-*.jar target/euro-coder-${{ steps.version.outputs.VERSION }}.jar
+        run: cp artifacts/jar/sovereign-agent-*.jar artifacts/euro-coder-${{ steps.version.outputs.VERSION }}.jar
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: target/euro-coder-${{ steps.version.outputs.VERSION }}.jar
+          files: |
+            artifacts/euro-coder-${{ steps.version.outputs.VERSION }}.jar
+            artifacts/native-linux-x64/euro-coder-${{ steps.version.outputs.VERSION }}-linux-x64.tar.gz
+            artifacts/native-macos-arm64/euro-coder-${{ steps.version.outputs.VERSION }}-macos-arm64.tar.gz
+            artifacts/native-windows-x64/euro-coder-${{ steps.version.outputs.VERSION }}-windows-x64.zip
